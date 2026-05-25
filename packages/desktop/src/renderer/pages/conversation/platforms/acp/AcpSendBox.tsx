@@ -106,8 +106,7 @@ const AcpSendBox: React.FC<{
   useEffect(() => {
     if (!teamPermission) return;
     void teamPermission
-      .warmupSession()
-      .then(() => ipcBridge.conversation.warmup.invoke({ conversation_id }))
+      .warmupSession(conversation_id)
       .then(() => {
         fetchSlashCommands();
       })
@@ -172,7 +171,7 @@ const AcpSendBox: React.FC<{
 
   const executeCommand = useCallback(
     async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
-      if (teamPermission) await teamPermission.warmupSession();
+      if (teamPermission) await teamPermission.warmupSession(conversation_id);
       const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
 
       setAiProcessing(true);
@@ -248,7 +247,7 @@ Please check your local CLI tool authentication status`,
         emitter.emit('acp.workspace.refresh');
       }
     },
-    [backend, checkAndUpdateTitle, conversation_id, setAiProcessing, t, workspacePath]
+    [backend, checkAndUpdateTitle, conversation_id, setAiProcessing, t, teamPermission, workspacePath]
   );
 
   const {

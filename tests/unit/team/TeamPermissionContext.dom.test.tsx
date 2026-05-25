@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TeamPermissionProvider, useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 
 const bridgeMocks = vi.hoisted(() => ({
   ensureSession: vi.fn(),
+  conversationWarmup: vi.fn(),
   setSessionMode: vi.fn(),
   setMode: vi.fn(),
 }));
@@ -21,15 +22,20 @@ vi.mock('@/common', () => ({
       ensureSession: { invoke: bridgeMocks.ensureSession },
       setSessionMode: { invoke: bridgeMocks.setSessionMode },
     },
+    conversation: {
+      warmup: { invoke: bridgeMocks.conversationWarmup },
+    },
     acpConversation: {
       setMode: { invoke: bridgeMocks.setMode },
     },
   },
 }));
 
-const CaptureContext: React.FC<{ onReady: (propagateMode: (mode: string) => void) => void }> = ({ onReady }) => {
+const CaptureContext: React.FC<{ onReady: (context: ReturnType<typeof useTeamPermission>) => void }> = ({
+  onReady,
+}) => {
   const context = useTeamPermission();
-  if (context) onReady(context.propagateMode);
+  onReady(context);
   return null;
 };
 
@@ -37,6 +43,7 @@ describe('TeamPermissionProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridgeMocks.ensureSession.mockResolvedValue(undefined);
+    bridgeMocks.conversationWarmup.mockResolvedValue(undefined);
     bridgeMocks.setSessionMode.mockResolvedValue(undefined);
     bridgeMocks.setMode.mockResolvedValue(undefined);
   });
@@ -51,7 +58,7 @@ describe('TeamPermissionProvider', () => {
         leaderConversationId='leader-conv'
         allConversationIds={['leader-conv', 'member-conv', 'member-conv']}
       >
-        <CaptureContext onReady={(callback) => (propagateMode = callback)} />
+        <CaptureContext onReady={(context) => (propagateMode = context?.propagateMode)} />
       </TeamPermissionProvider>
     );
 
@@ -89,6 +96,40 @@ describe('TeamPermissionProvider', () => {
     });
 
     expect(bridgeMocks.setSessionMode).not.toHaveBeenCalled();
+    expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'leader-conv', mode: 'full-access' });
+    expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'member-conv', mode: 'full-access' });
+  });
+
+  it('warms the active conversation before re-applying saved mode for an old team send', async () => {
+    let warmupSession: ((conversation_id?: string) => Promise<void>) | undefined;
+
+    render(
+      <TeamPermissionProvider
+        team_id='team-1'
+        isLeaderAgent
+        leaderConversationId='leader-conv'
+        allConversationIds={['leader-conv', 'member-conv']}
+        sessionMode='full-access'
+      >
+        <CaptureContext onReady={(context) => (warmupSession = context?.warmupSession)} />
+      </TeamPermissionProvider>
+    );
+
+    await waitFor(() => {
+      expect(bridgeMocks.setMode).toHaveBeenCalledTimes(2);
+    });
+
+    vi.clearAllMocks();
+    bridgeMocks.ensureSession.mockResolvedValue(undefined);
+    bridgeMocks.conversationWarmup.mockResolvedValue(undefined);
+    bridgeMocks.setMode.mockResolvedValue(undefined);
+
+    await act(async () => {
+      await warmupSession?.('leader-conv');
+    });
+
+    expect(bridgeMocks.ensureSession).not.toHaveBeenCalled();
+    expect(bridgeMocks.conversationWarmup).toHaveBeenCalledWith({ conversation_id: 'leader-conv' });
     expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'leader-conv', mode: 'full-access' });
     expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'member-conv', mode: 'full-access' });
   });

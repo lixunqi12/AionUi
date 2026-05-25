@@ -130,8 +130,7 @@ const AionrsSendBox: React.FC<{
     if (!conversation_id) return;
     if (teamPermission) {
       void teamPermission
-        .warmupSession()
-        .then(() => ipcBridge.conversation.warmup.invoke({ conversation_id }))
+        .warmupSession(conversation_id)
         .then(() => {
           setAgentWarmed(true);
         })
@@ -190,7 +189,7 @@ const AionrsSendBox: React.FC<{
 
   const executeCommand = useCallback(
     async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
-      if (teamPermission) await teamPermission.warmupSession();
+      if (teamPermission) await teamPermission.warmupSession(conversation_id);
       if (!current_model?.use_model) {
         Message.warning(t('conversation.chat.noModelSelected'));
         throw new Error('No model selected');
@@ -244,6 +243,7 @@ const AionrsSendBox: React.FC<{
       setActiveMsgId,
       removeMessageByMsgId,
       setWaitingResponse,
+      teamPermission,
       workspacePath,
     ]
   );

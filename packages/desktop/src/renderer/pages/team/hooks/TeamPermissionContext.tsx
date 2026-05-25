@@ -5,14 +5,15 @@ const MODE_SYNC_RETRY_DELAY_MS = 250;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-async function setConversationModeWithRetry(conversation_id: string, mode: string): Promise<void> {
+async function setConversationModeWithRetry(conversation_id: string, mode: string): Promise<boolean> {
   try {
     await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
-    return;
+    return true;
   } catch (firstError) {
     await wait(MODE_SYNC_RETRY_DELAY_MS);
     try {
       await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
+      return true;
     } catch (secondError) {
       console.warn('[TeamPermissionContext] Failed to sync mode to conversation', {
         conversation_id,
@@ -20,6 +21,7 @@ async function setConversationModeWithRetry(conversation_id: string, mode: strin
         firstError,
         secondError,
       });
+      return false;
     }
   }
 }
@@ -39,8 +41,8 @@ type TeamPermissionContextValue = {
   isFullAccessMode: boolean;
   /** Propagate a permission mode change from the leader to all member agents */
   propagateMode: (mode: string) => void;
-  /** Trigger session warmup (idempotent, returns cached promise) */
-  warmupSession: () => Promise<void>;
+  /** Trigger session warmup and re-apply the saved mode to the current ACP session. */
+  warmupSession: (conversation_id?: string) => Promise<void>;
 };
 
 const TeamPermissionContext = createContext<TeamPermissionContextValue | null>(null);
@@ -69,12 +71,41 @@ export const TeamPermissionProvider: React.FC<{
   const normalizedSessionMode = sessionMode?.trim();
   const isFullAccessMode = normalizedSessionMode === 'full-access';
 
-  const warmupSession = useCallback((): Promise<void> => {
+  const ensureTeamSession = useCallback((): Promise<void> => {
     if (!warmupPromiseRef.current) {
       warmupPromiseRef.current = ipcBridge.team.ensureSession.invoke({ team_id }).catch(() => {});
     }
     return warmupPromiseRef.current;
   }, [team_id]);
+
+  const syncModeToConversations = useCallback(
+    async (mode: string, extraConversationIds: string[] = []): Promise<boolean> => {
+      const ids = Array.from(new Set([...targetConversationIds, ...extraConversationIds].filter(Boolean)));
+      if (ids.length === 0) return true;
+      const results = await Promise.all(
+        ids.map((conversation_id) => setConversationModeWithRetry(conversation_id, mode))
+      );
+      return results.every(Boolean);
+    },
+    [targetConversationIds]
+  );
+
+  const warmupSession = useCallback(
+    async (conversation_id?: string): Promise<void> => {
+      await ensureTeamSession();
+      if (conversation_id) {
+        await ipcBridge.conversation.warmup.invoke({ conversation_id }).catch((error) => {
+          console.warn('[TeamPermissionContext] Failed to warm team conversation', { conversation_id, error });
+        });
+      }
+
+      const mode = normalizedSessionMode;
+      if (mode) {
+        await syncModeToConversations(mode, conversation_id ? [conversation_id] : []);
+      }
+    },
+    [ensureTeamSession, normalizedSessionMode, syncModeToConversations]
+  );
 
   const syncModeToTeamAgents = useCallback(
     (mode: string, { persistTeamMode = false }: { persistTeamMode?: boolean } = {}) => {
@@ -92,13 +123,11 @@ export const TeamPermissionProvider: React.FC<{
           });
         }
 
-        await warmupSession();
-        await Promise.allSettled(
-          targetConversationIds.map((conversation_id) => setConversationModeWithRetry(conversation_id, nextMode))
-        );
+        await ensureTeamSession();
+        await syncModeToConversations(nextMode);
       })();
     },
-    [team_id, targetConversationIds, warmupSession]
+    [ensureTeamSession, syncModeToConversations, targetConversationIds.length, team_id]
   );
 
   const propagateMode = useCallback(

@@ -348,7 +348,7 @@ const OpenClawSendBox: React.FC<{ conversation_id: string }> = ({ conversation_i
 
   const executeCommand = useCallback(
     async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
-      if (teamPermission) await teamPermission.warmupSession();
+      if (teamPermission) await teamPermission.warmupSession(conversation_id);
       const displayMessage = buildDisplayMessage(input, files, workspacePath);
 
       setAiProcessing(true);
@@ -386,7 +386,7 @@ const OpenClawSendBox: React.FC<{ conversation_id: string }> = ({ conversation_i
         throw error;
       }
     },
-    [addOrUpdateMessage, checkAndUpdateTitle, conversation_id, removeMessageByMsgId, workspacePath]
+    [addOrUpdateMessage, checkAndUpdateTitle, conversation_id, removeMessageByMsgId, teamPermission, workspacePath]
   );
 
   const {
