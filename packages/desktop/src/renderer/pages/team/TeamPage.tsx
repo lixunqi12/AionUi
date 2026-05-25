@@ -31,8 +31,6 @@ type TeamPageContentProps = {
   onRenameTeam: (new_name: string) => Promise<boolean>;
 };
 
-const TEAM_IDLE_RUNNING_SETTLE_MS = 10_000;
-
 /** Compact aionrs model selector for the agent header */
 const AionrsHeaderModelSelector: React.FC<{ conversation_id: string; initialModel?: TProviderWithModel }> = ({
   conversation_id,
@@ -80,45 +78,17 @@ const AgentChatSlot: React.FC<{
     setLocallyClearedStaleRunning(false);
 
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const settleFromTeamIdle = () => {
-      const modifiedAt = conversation.modified_at || conversation.created_at || 0;
-      const runningAgeMs = modifiedAt > 0 ? Date.now() - modifiedAt : TEAM_IDLE_RUNNING_SETTLE_MS;
-      const waitMs = TEAM_IDLE_RUNNING_SETTLE_MS - runningAgeMs;
-
-      if (waitMs > 0) {
-        timer = setTimeout(settleFromTeamIdle, waitMs);
-        return;
-      }
-
-      if (!cancelled) {
-        setLocallyClearedStaleRunning(true);
-      }
-    };
-
     void repairStaleRunningAcpConversation(conversation.id).then((repaired) => {
       if (cancelled) return;
       if (repaired) {
         setLocallyClearedStaleRunning(true);
-        return;
       }
-      settleFromTeamIdle();
     });
 
     return () => {
       cancelled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
     };
-  }, [
-    conversation?.created_at,
-    conversation?.id,
-    conversation?.modified_at,
-    conversation?.status,
-    isAcpLike,
-    isAgentWorking,
-  ]);
+  }, [conversation?.id, conversation?.status, isAcpLike, isAgentWorking]);
 
   const displayConversation =
     conversation && locallyClearedStaleRunning && conversation.status === 'running'

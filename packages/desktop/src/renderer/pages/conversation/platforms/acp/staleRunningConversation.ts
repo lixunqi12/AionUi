@@ -5,6 +5,8 @@ const STALE_RUNNING_RECHECK_DELAY_MS = 300;
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+type AcpRuntimeState = 'active' | 'awaiting_confirmation' | 'detached' | 'unknown';
+
 export async function hasActiveAcpAgent(conversation_id: string): Promise<boolean> {
   try {
     await ipcBridge.acpConversation.getMode.invoke({ conversation_id });
@@ -27,6 +29,27 @@ export async function hasActiveAcpAgent(conversation_id: string): Promise<boolea
   }
 }
 
+export async function getAcpRuntimeState(conversation_id: string): Promise<AcpRuntimeState> {
+  const hasActiveAgent = await hasActiveAcpAgent(conversation_id);
+  if (hasActiveAgent) {
+    return 'active';
+  }
+
+  try {
+    const confirmations = await ipcBridge.conversation.confirmation.list.invoke({ conversation_id });
+    if (confirmations.length > 0) {
+      return 'awaiting_confirmation';
+    }
+    return 'detached';
+  } catch (error) {
+    console.warn('[staleRunningConversation] Failed to inspect pending confirmations', {
+      conversation_id,
+      error,
+    });
+    return 'unknown';
+  }
+}
+
 export async function markStaleRunningConversationFinished(conversation_id: string): Promise<boolean> {
   return ipcBridge.conversation.update
     .invoke({
@@ -44,8 +67,8 @@ export async function markStaleRunningConversationFinished(conversation_id: stri
 }
 
 export async function repairStaleRunningAcpConversation(conversation_id: string): Promise<boolean> {
-  const hasActiveAgent = await hasActiveAcpAgent(conversation_id);
-  if (hasActiveAgent) {
+  const runtimeState = await getAcpRuntimeState(conversation_id);
+  if (runtimeState !== 'detached') {
     return false;
   }
   void markStaleRunningConversationFinished(conversation_id);
