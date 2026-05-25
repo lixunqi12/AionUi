@@ -9,12 +9,21 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TeamPermissionProvider, useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 
-const bridgeMocks = vi.hoisted(() => ({
-  ensureSession: vi.fn(),
-  conversationWarmup: vi.fn(),
-  setSessionMode: vi.fn(),
-  setMode: vi.fn(),
-}));
+const bridgeMocks = vi.hoisted(() => {
+  const responseStreamHandlers: Array<(message: unknown) => void> = [];
+  return {
+    ensureSession: vi.fn(),
+    conversationWarmup: vi.fn(),
+    confirmMessage: vi.fn(),
+    setSessionMode: vi.fn(),
+    setMode: vi.fn(),
+    responseStreamHandlers,
+    responseStreamOn: vi.fn((handler: (message: unknown) => void) => {
+      responseStreamHandlers.push(handler);
+      return vi.fn();
+    }),
+  };
+});
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -24,9 +33,11 @@ vi.mock('@/common', () => ({
     },
     conversation: {
       warmup: { invoke: bridgeMocks.conversationWarmup },
+      confirmMessage: { invoke: bridgeMocks.confirmMessage },
     },
     acpConversation: {
       setMode: { invoke: bridgeMocks.setMode },
+      responseStream: { on: bridgeMocks.responseStreamOn },
     },
   },
 }));
@@ -44,8 +55,10 @@ describe('TeamPermissionProvider', () => {
     vi.clearAllMocks();
     bridgeMocks.ensureSession.mockResolvedValue(undefined);
     bridgeMocks.conversationWarmup.mockResolvedValue(undefined);
+    bridgeMocks.confirmMessage.mockResolvedValue(undefined);
     bridgeMocks.setSessionMode.mockResolvedValue(undefined);
     bridgeMocks.setMode.mockResolvedValue(undefined);
+    bridgeMocks.responseStreamHandlers.length = 0;
   });
 
   it('persists leader mode changes and applies them to existing team conversations', async () => {
@@ -132,5 +145,55 @@ describe('TeamPermissionProvider', () => {
     expect(bridgeMocks.conversationWarmup).toHaveBeenCalledWith({ conversation_id: 'leader-conv' });
     expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'leader-conv', mode: 'full-access' });
     expect(bridgeMocks.setMode).toHaveBeenCalledWith({ conversation_id: 'member-conv', mode: 'full-access' });
+  });
+
+  it('auto-confirms camelCase ACP permission stream events for full-access teams', async () => {
+    render(
+      <TeamPermissionProvider
+        team_id='team-1'
+        isLeaderAgent
+        leaderConversationId='leader-conv'
+        allConversationIds={['leader-conv', 'member-conv']}
+        sessionMode='full-access'
+      >
+        <div />
+      </TeamPermissionProvider>
+    );
+
+    await waitFor(() => {
+      expect(bridgeMocks.responseStreamOn).toHaveBeenCalled();
+    });
+
+    act(() => {
+      for (const handler of bridgeMocks.responseStreamHandlers) {
+        handler({
+          type: 'acp_permission',
+          conversation_id: 'leader-conv',
+          msg_id: 'msg-1',
+          data: {
+            sessionId: 'session-1',
+            options: [
+              { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+              { optionId: 'abort', name: 'No', kind: 'reject_once' },
+            ],
+            toolCall: {
+              toolCallId: 'call-1',
+              kind: 'execute',
+              title: 'scp file',
+              status: 'pending',
+            },
+          },
+        });
+      }
+    });
+
+    await waitFor(() => {
+      expect(bridgeMocks.confirmMessage).toHaveBeenCalledWith({
+        confirm_key: 'approved',
+        msg_id: 'msg-1',
+        conversation_id: 'leader-conv',
+        call_id: 'call-1',
+      });
+    });
   });
 });

@@ -16,6 +16,7 @@ const bridgeMocks = vi.hoisted(() => ({
   ensureSession: vi.fn(),
   setMode: vi.fn(),
   setSessionMode: vi.fn(),
+  responseStreamOn: vi.fn(() => vi.fn()),
 }));
 
 vi.mock('@/common/adapter/ipcBridge', () => ({
@@ -30,8 +31,12 @@ vi.mock('@/common', () => ({
       ensureSession: { invoke: bridgeMocks.ensureSession },
       setSessionMode: { invoke: bridgeMocks.setSessionMode },
     },
+    conversation: {
+      confirmMessage: { invoke: bridgeMocks.confirmMessage },
+    },
     acpConversation: {
       setMode: { invoke: bridgeMocks.setMode },
+      responseStream: { on: bridgeMocks.responseStreamOn },
     },
   },
 }));
@@ -92,7 +97,49 @@ describe('MessageAcpPermission full-access team behavior', () => {
     await waitFor(() => {
       expect(bridgeMocks.confirmMessage).toHaveBeenCalledWith({
         confirm_key: 'approved',
-        msg_id: 'message-1',
+        msg_id: 'msg-1',
+        conversation_id: 'leader-conv',
+        call_id: 'call-1',
+      });
+    });
+  });
+
+  it('auto-confirms camelCase ACP permission payloads', async () => {
+    const camelCaseMessage = {
+      ...permissionMessage,
+      content: {
+        sessionId: 'session-1',
+        options: [
+          { optionId: 'approved', name: 'Yes, proceed', kind: 'allow_once' },
+          { optionId: 'abort', name: 'No', kind: 'reject_once' },
+        ],
+        toolCall: {
+          toolCallId: 'call-1',
+          kind: 'execute',
+          title: 'scp file',
+          status: 'pending',
+        },
+      },
+    } as unknown as IMessageAcpPermission;
+
+    const { container } = render(
+      <TeamPermissionProvider
+        team_id='team-1'
+        isLeaderAgent
+        leaderConversationId='leader-conv'
+        allConversationIds={['leader-conv']}
+        sessionMode='full-access'
+      >
+        <MessageAcpPermission message={camelCaseMessage} />
+      </TeamPermissionProvider>
+    );
+
+    expect(container).toBeEmptyDOMElement();
+
+    await waitFor(() => {
+      expect(bridgeMocks.confirmMessage).toHaveBeenCalledWith({
+        confirm_key: 'approved',
+        msg_id: 'msg-1',
         conversation_id: 'leader-conv',
         call_id: 'call-1',
       });

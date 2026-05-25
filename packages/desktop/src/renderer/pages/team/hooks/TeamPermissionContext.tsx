@@ -1,4 +1,9 @@
 import { ipcBridge } from '@/common';
+import {
+  getAcpPermissionAllowOption,
+  getAcpPermissionCallId,
+  normalizeAcpPermissionRequest,
+} from '@/common/chat/acpPermission';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 
 const MODE_SYNC_RETRY_DELAY_MS = 250;
@@ -57,10 +62,12 @@ export const TeamPermissionProvider: React.FC<{
 }> = ({ children, team_id, isLeaderAgent, leaderConversationId, allConversationIds, sessionMode }) => {
   const warmupPromiseRef = useRef<Promise<void> | null>(null);
   const lastSessionModeSyncKeyRef = useRef<string | null>(null);
+  const autoApprovedPermissionKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     warmupPromiseRef.current = null;
     lastSessionModeSyncKeyRef.current = null;
+    autoApprovedPermissionKeysRef.current.clear();
   }, [team_id]);
 
   const targetConversationIds = useMemo(
@@ -147,6 +154,50 @@ export const TeamPermissionProvider: React.FC<{
 
     syncModeToTeamAgents(mode);
   }, [normalizedSessionMode, syncModeToTeamAgents, targetConversationIds.length, targetConversationIdsKey, team_id]);
+
+  useEffect(() => {
+    if (!isFullAccessMode || targetConversationIds.length === 0) return;
+
+    const idSet = new Set(targetConversationIds);
+    const autoApprove = async (params: {
+      conversation_id: string;
+      msg_id: string;
+      call_id: string;
+      confirm_key: string;
+    }) => {
+      const key = `${params.conversation_id}:${params.call_id}`;
+      if (autoApprovedPermissionKeysRef.current.has(key)) return;
+      autoApprovedPermissionKeysRef.current.add(key);
+
+      try {
+        await ipcBridge.conversation.confirmMessage.invoke(params);
+      } catch (error) {
+        autoApprovedPermissionKeysRef.current.delete(key);
+        console.warn('[TeamPermissionContext] Failed to auto-approve full-access team permission', {
+          ...params,
+          error,
+        });
+      }
+    };
+
+    return ipcBridge.acpConversation.responseStream.on((message) => {
+      if (message.type !== 'acp_permission' || !idSet.has(message.conversation_id)) return;
+
+      const permissionRequest = normalizeAcpPermissionRequest(message.data);
+      if (!permissionRequest) return;
+
+      const option = getAcpPermissionAllowOption(permissionRequest.options);
+      const callId = getAcpPermissionCallId(permissionRequest);
+      if (!option?.option_id || !callId) return;
+
+      void autoApprove({
+        conversation_id: message.conversation_id,
+        msg_id: message.msg_id || callId,
+        call_id: callId,
+        confirm_key: option.option_id,
+      });
+    });
+  }, [isFullAccessMode, targetConversationIds, targetConversationIds.length]);
 
   const value = useMemo<TeamPermissionContextValue>(
     () => ({

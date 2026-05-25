@@ -7,6 +7,7 @@
 import type { AcpPermissionRequest, PlanUpdate, ToolCallUpdate } from '@/common/types/platform/acpTypes';
 import type { IResponseMessage } from '../adapter/ipcBridge';
 import { uuid } from '../utils';
+import { normalizeAcpPermissionRequest } from './acpPermission';
 
 /**
  * 安全的路径拼接函数，兼容Windows和Mac
@@ -455,6 +456,7 @@ export const transformMessage = (message: IResponseMessage): TMessage => {
       };
     }
     case 'acp_permission': {
+      const content = normalizeAcpPermissionRequest(message.data);
       return {
         id: uuid(),
         type: 'acp_permission',
@@ -462,7 +464,7 @@ export const transformMessage = (message: IResponseMessage): TMessage => {
         position: 'left',
         conversation_id: message.conversation_id,
         created_at,
-        content: message.data as any,
+        content: (content ?? message.data) as AcpPermissionRequest,
       };
     }
     case 'acp_tool_call': {

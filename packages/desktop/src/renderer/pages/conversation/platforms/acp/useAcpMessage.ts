@@ -13,6 +13,7 @@ import type { TokenUsageData } from '@/common/config/storage';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
+import { repairStaleRunningAcpConversation } from './staleRunningConversation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type UseAcpMessageReturn = {
@@ -395,7 +396,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     aiProcessingRef.current = false;
 
     void getConversationOrNull(conversation_id)
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) {
           return;
         }
@@ -408,7 +409,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           setHasHydratedRunningState(true);
           return;
         }
-        const isRunning = res.status === 'running';
+        let isRunning = res.status === 'running';
+        if (isRunning) {
+          const repaired = await repairStaleRunningAcpConversation(conversation_id);
+          if (cancelled) return;
+          if (repaired) {
+            isRunning = false;
+          }
+        }
         setRunning(isRunning);
         runningRef.current = isRunning;
         if (isRunning) {

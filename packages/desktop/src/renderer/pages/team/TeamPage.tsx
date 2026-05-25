@@ -20,6 +20,7 @@ import { TeamTabsProvider, useTeamTabs } from './hooks/TeamTabsContext';
 import { TeamPermissionProvider } from './hooks/TeamPermissionContext';
 import { useTeamSession } from './hooks/useTeamSession';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
+import { repairStaleRunningAcpConversation } from '@/renderer/pages/conversation/platforms/acp/staleRunningConversation';
 
 type Props = {
   team: TTeam;
@@ -60,11 +61,32 @@ const AgentChatSlot: React.FC<{
     agent.conversation_id ? ['team-conversation', agent.conversation_id] : null,
     () => getConversationOrNull(agent.conversation_id)
   );
+  const [locallyClearedStaleRunning, setLocallyClearedStaleRunning] = useState(false);
 
   const isAionrs = conversation?.type === 'aionrs';
   const initialModelId = (conversation?.extra as { current_model_id?: string })?.current_model_id;
   const isAcpLike =
     agent.conversation_type === 'acp' || agent.conversation_type === 'codex' || conversation?.type === 'acp';
+
+  useEffect(() => {
+    if (!conversation?.id || !isAcpLike || conversation.status !== 'running') return;
+    if (agent.status === 'active' || agent.status === 'pending') return;
+
+    let cancelled = false;
+    void repairStaleRunningAcpConversation(conversation.id).then((repaired) => {
+      if (!cancelled && repaired) {
+        setLocallyClearedStaleRunning(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.status, conversation?.id, conversation?.status, isAcpLike]);
+
+  const displayConversation =
+    conversation && locallyClearedStaleRunning && conversation.status === 'running'
+      ? ({ ...conversation, status: 'finished' } as TChatConversation)
+      : conversation;
 
   return (
     <div
@@ -132,9 +154,9 @@ const AgentChatSlot: React.FC<{
         </div>
       </div>
       <div className='relative flex flex-col flex-1 min-h-0'>
-        {conversation ? (
+        {displayConversation ? (
           <TeamChatView
-            conversation={conversation as TChatConversation}
+            conversation={displayConversation as TChatConversation}
             team_id={team_id}
             agent_name={agent.agent_name}
             agent_icon={agent.icon}

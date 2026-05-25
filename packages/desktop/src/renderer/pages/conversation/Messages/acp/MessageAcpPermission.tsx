@@ -5,6 +5,11 @@
  */
 
 import type { IMessageAcpPermission } from '@/common/chat/chatLib';
+import {
+  getAcpPermissionAllowOption,
+  getAcpPermissionCallId,
+  normalizeAcpPermissionRequest,
+} from '@/common/chat/acpPermission';
 import { conversation } from '@/common/adapter/ipcBridge';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
@@ -18,7 +23,8 @@ interface MessageAcpPermissionProps {
 }
 
 const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ message }) => {
-  const { options = [], tool_call } = message.content || {};
+  const permissionRequest = useMemo(() => normalizeAcpPermissionRequest(message.content), [message.content]);
+  const { options = [], tool_call } = permissionRequest || {};
   const { t } = useTranslation();
   const teamPermission = useTeamPermission();
 
@@ -51,12 +57,14 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
   const [selected, setSelected] = useState<string | null>(null);
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
-  const allowOnceOption = useMemo(
-    () => options.find((option) => option?.kind === 'allow_once') ?? options.find((option) => option?.option_id),
-    [options]
+  const allowOnceOption = useMemo(() => getAcpPermissionAllowOption(options), [options]);
+  const callId = useMemo(
+    () => (permissionRequest ? getAcpPermissionCallId(permissionRequest) : undefined),
+    [permissionRequest]
   );
   const shouldAutoApprove =
     Boolean(teamPermission?.isFullAccessMode) && teamPermission?.allConversationIds.includes(message.conversation_id);
+  const canAutoApprove = shouldAutoApprove && Boolean(allowOnceOption?.option_id && callId);
 
   const confirmWithOption = useCallback(
     async (confirm_key: string) => {
@@ -66,9 +74,9 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
       try {
         const invokeData = {
           confirm_key,
-          msg_id: message.id,
+          msg_id: message.msg_id || message.id,
           conversation_id: message.conversation_id,
-          call_id: tool_call?.tool_call_id || message.id,
+          call_id: callId || message.id,
         };
 
         await conversation.confirmMessage.invoke(invokeData);
@@ -80,13 +88,13 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
         setIsResponding(false);
       }
     },
-    [hasResponded, isResponding, message.conversation_id, message.id, tool_call?.tool_call_id]
+    [callId, hasResponded, isResponding, message.conversation_id, message.id, message.msg_id]
   );
 
   useEffect(() => {
-    if (!shouldAutoApprove || !allowOnceOption?.option_id || hasResponded || isResponding) return;
+    if (!canAutoApprove || !allowOnceOption?.option_id || hasResponded || isResponding) return;
     void confirmWithOption(allowOnceOption.option_id);
-  }, [allowOnceOption?.option_id, confirmWithOption, hasResponded, isResponding, shouldAutoApprove]);
+  }, [allowOnceOption?.option_id, canAutoApprove, confirmWithOption, hasResponded, isResponding]);
 
   const handleConfirm = async () => {
     if (!selected) return;
@@ -97,7 +105,7 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
     return null;
   }
 
-  if (shouldAutoApprove) {
+  if (canAutoApprove) {
     return null;
   }
 
