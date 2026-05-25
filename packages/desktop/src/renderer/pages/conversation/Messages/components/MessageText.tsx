@@ -166,6 +166,8 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   const senderAgentType = message.content.senderAgentType;
   const senderConversationId = message.content.senderConversationId;
   const fallbackBackendLogo = senderAgentType ? getAgentLogo(senderAgentType) : null;
+  const statusLabel =
+    message.status === 'pending' ? t('conversation.commandQueue.queued', { defaultValue: 'Queued' }) : null;
 
   return (
     <>
@@ -243,6 +245,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
                 {formatMessageTime(message.created_at)}
               </span>
             )}
+            {statusLabel && <span className='text-12px text-t-secondary opacity-70 select-none'>{statusLabel}</span>}
           </div>
         )}
       </div>

@@ -14,7 +14,7 @@ import { getSendBoxDraftHook, type FileOrFolderItem } from '@/renderer/hooks/cha
 import { createSetUploadFile, useSendBoxFiles } from '@/renderer/hooks/chat/useSendBoxFiles';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
-import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
+import { useAddOrUpdateMessage, useRemoveMessageByMsgId } from '@/renderer/pages/conversation/Messages/hooks';
 import {
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
@@ -43,6 +43,9 @@ const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
 
 const EMPTY_AT_PATH: Array<string | FileOrFolderItem> = [];
 const EMPTY_UPLOAD_FILES: string[] = [];
+const QUEUED_MESSAGE_PREFIX = 'queued-command:';
+
+const getQueuedMessageId = (commandId: string) => `${QUEUED_MESSAGE_PREFIX}${commandId}`;
 
 const useSendBoxDraft = (conversation_id: string) => {
   const { data, mutate } = useAcpSendBoxDraft(conversation_id);
@@ -128,7 +131,9 @@ const AcpSendBox: React.FC<{
   const atPathRef = useLatestRef(atPath);
 
   const addOrUpdateMessage = useAddOrUpdateMessage(); // Move this here so it's available in useEffect
+  const removeMessageByMsgId = useRemoveMessageByMsgId();
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
+  const removeMessageByMsgIdRef = useLatestRef(removeMessageByMsgId);
 
   // Shared file handling logic
   const { handleFilesAdded, clearFiles } = useSendBoxFiles({
@@ -170,7 +175,14 @@ const AcpSendBox: React.FC<{
   });
 
   const executeCommand = useCallback(
-    async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
+    async ({
+      id,
+      input,
+      files,
+    }: Partial<Pick<ConversationCommandQueueItem, 'id'>> & Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
+      if (id) {
+        removeMessageByMsgIdRef.current(getQueuedMessageId(id));
+      }
       if (teamPermission) await teamPermission.warmupSession(conversation_id);
       const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
 
@@ -247,7 +259,16 @@ Please check your local CLI tool authentication status`,
         emitter.emit('acp.workspace.refresh');
       }
     },
-    [backend, checkAndUpdateTitle, conversation_id, setAiProcessing, t, teamPermission, workspacePath]
+    [
+      backend,
+      checkAndUpdateTitle,
+      conversation_id,
+      removeMessageByMsgIdRef,
+      setAiProcessing,
+      t,
+      teamPermission,
+      workspacePath,
+    ]
   );
 
   const {
@@ -286,7 +307,20 @@ Please check your local CLI tool authentication status`,
         hasPendingCommands,
       })
     ) {
-      enqueue({ input: message, files: allFiles });
+      const queuedItem = enqueue({ input: message, files: allFiles });
+      if (queuedItem) {
+        const displayMessage = buildDisplayMessage(message, allFiles, workspacePath || '');
+        addOrUpdateMessageRef.current({
+          id: getQueuedMessageId(queuedItem.id),
+          msg_id: getQueuedMessageId(queuedItem.id),
+          type: 'text',
+          position: 'right',
+          status: 'pending',
+          conversation_id,
+          content: { content: displayMessage },
+          created_at: queuedItem.created_at,
+        });
+      }
       return;
     }
 
@@ -296,13 +330,27 @@ Please check your local CLI tool authentication status`,
   const handleEditQueuedCommand = useCallback(
     (item: ConversationCommandQueueItem) => {
       remove(item.id);
+      removeMessageByMsgId(getQueuedMessageId(item.id));
       setContent(item.input);
       setUploadFile(Array.from(new Set(item.files)));
       setAtPath([]);
       emitter.emit('acp.selected.file.clear');
     },
-    [remove, setAtPath, setContent, setUploadFile]
+    [remove, removeMessageByMsgId, setAtPath, setContent, setUploadFile]
   );
+
+  const handleRemoveQueuedCommand = useCallback(
+    (commandId: string) => {
+      remove(commandId);
+      removeMessageByMsgId(getQueuedMessageId(commandId));
+    },
+    [remove, removeMessageByMsgId]
+  );
+
+  const handleClearQueuedCommands = useCallback(() => {
+    queuedCommands.forEach((item) => removeMessageByMsgId(getQueuedMessageId(item.id)));
+    clear();
+  }, [clear, queuedCommands, removeMessageByMsgId]);
 
   const appendSelectedFiles = useCallback(
     (files: string[]) => {
@@ -349,8 +397,8 @@ Please check your local CLI tool authentication status`,
         onInteractionUnlock={unlockInteraction}
         onEdit={handleEditQueuedCommand}
         onReorder={reorder}
-        onRemove={remove}
-        onClear={clear}
+        onRemove={handleRemoveQueuedCommand}
+        onClear={handleClearQueuedCommands}
       />
       <ThoughtDisplay running={aiProcessing && !hasThinkingMessage} onStop={handleStop} />
 
