@@ -1,5 +1,28 @@
 import { ipcBridge } from '@/common';
-import React, { createContext, useCallback, useContext, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+
+const MODE_SYNC_RETRY_DELAY_MS = 250;
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function setConversationModeWithRetry(conversation_id: string, mode: string): Promise<void> {
+  try {
+    await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
+    return;
+  } catch (firstError) {
+    await wait(MODE_SYNC_RETRY_DELAY_MS);
+    try {
+      await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
+    } catch (secondError) {
+      console.warn('[TeamPermissionContext] Failed to sync mode to conversation', {
+        conversation_id,
+        mode,
+        firstError,
+        secondError,
+      });
+    }
+  }
+}
 
 type TeamPermissionContextValue = {
   /** Whether we are in team mode */
@@ -24,18 +47,21 @@ export const TeamPermissionProvider: React.FC<{
   isLeaderAgent: boolean;
   leaderConversationId: string;
   allConversationIds: string[];
-}> = ({ children, team_id, isLeaderAgent, leaderConversationId, allConversationIds }) => {
+  sessionMode?: string;
+}> = ({ children, team_id, isLeaderAgent, leaderConversationId, allConversationIds, sessionMode }) => {
   const warmupPromiseRef = useRef<Promise<void> | null>(null);
+  const lastSessionModeSyncKeyRef = useRef<string | null>(null);
 
-  const propagateMode = useCallback(
-    (mode: string) => {
-      // Persist session_mode on the team record so newly spawned agents inherit it
-      void ipcBridge.team.setSessionMode.invoke({ team_id, session_mode: mode }).catch(() => {
-        // Best-effort: if this fails, agents still get mode via per-conversation setMode below
-      });
-    },
-    [team_id]
+  useEffect(() => {
+    warmupPromiseRef.current = null;
+    lastSessionModeSyncKeyRef.current = null;
+  }, [team_id]);
+
+  const targetConversationIds = useMemo(
+    () => Array.from(new Set([leaderConversationId, ...allConversationIds].filter((id): id is string => Boolean(id)))),
+    [leaderConversationId, allConversationIds]
   );
+  const targetConversationIdsKey = targetConversationIds.join('\n');
 
   const warmupSession = useCallback((): Promise<void> => {
     if (!warmupPromiseRef.current) {
@@ -43,6 +69,49 @@ export const TeamPermissionProvider: React.FC<{
     }
     return warmupPromiseRef.current;
   }, [team_id]);
+
+  const syncModeToTeamAgents = useCallback(
+    (mode: string, { persistTeamMode = false }: { persistTeamMode?: boolean } = {}) => {
+      const nextMode = mode.trim();
+      if (!nextMode || targetConversationIds.length === 0) return;
+
+      void (async () => {
+        if (persistTeamMode) {
+          await ipcBridge.team.setSessionMode.invoke({ team_id, session_mode: nextMode }).catch((error) => {
+            console.warn('[TeamPermissionContext] Failed to persist team session mode', {
+              team_id,
+              mode: nextMode,
+              error,
+            });
+          });
+        }
+
+        await warmupSession();
+        await Promise.allSettled(
+          targetConversationIds.map((conversation_id) => setConversationModeWithRetry(conversation_id, nextMode))
+        );
+      })();
+    },
+    [team_id, targetConversationIds, warmupSession]
+  );
+
+  const propagateMode = useCallback(
+    (mode: string) => {
+      syncModeToTeamAgents(mode, { persistTeamMode: true });
+    },
+    [syncModeToTeamAgents]
+  );
+
+  useEffect(() => {
+    const mode = sessionMode?.trim();
+    if (!mode || targetConversationIds.length === 0) return;
+
+    const syncKey = `${team_id}:${mode}:${targetConversationIdsKey}`;
+    if (lastSessionModeSyncKeyRef.current === syncKey) return;
+    lastSessionModeSyncKeyRef.current = syncKey;
+
+    syncModeToTeamAgents(mode);
+  }, [sessionMode, syncModeToTeamAgents, targetConversationIds.length, targetConversationIdsKey, team_id]);
 
   const value = useMemo<TeamPermissionContextValue>(
     () => ({

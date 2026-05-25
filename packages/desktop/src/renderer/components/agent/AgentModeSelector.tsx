@@ -103,8 +103,8 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   useEffect(() => {
     if (!backend) return;
 
-    const cachedModes = configService.get('acp.cachedModes');
-    const session_modes = cachedModes?.[backend];
+    const cachedModeConfig = configService.get('acp.cachedModes');
+    const session_modes = cachedModeConfig?.[backend];
     if (session_modes?.available_modes && session_modes.available_modes.length > 0) {
       setCachedModes(
         session_modes.available_modes.map((m) => ({
@@ -218,7 +218,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         setIsLoading(false);
       }
     },
-    [conversation_id, current_mode, onModeSelect]
+    [conversation_id, current_mode, onModeChanged, onModeSelect]
   );
 
   const renderLogo = () => (

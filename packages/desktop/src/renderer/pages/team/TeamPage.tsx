@@ -213,6 +213,8 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
   // creation. Falling back to a leader agent's auto-temp workspace counts as
   // temporary, mirroring single-chat behavior.
   const isTeamWorkspaceTemporary = !team.workspace;
+  const leaderSessionMode = (dispatchConversation?.extra as { session_mode?: string } | undefined)?.session_mode;
+  const effectiveSessionMode = team.session_mode || leaderSessionMode;
 
   const siderTitle = useMemo(
     () => (
@@ -338,6 +340,7 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
       isLeaderAgent={isLeaderAgent}
       leaderConversationId={leaderConversationId}
       allConversationIds={allConversationIds}
+      sessionMode={effectiveSessionMode}
     >
       {messageContext}
       <ChatLayout

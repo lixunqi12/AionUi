@@ -92,6 +92,7 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
             conversation_id={conversation.id}
             workspace={conversation.extra?.workspace}
             backend='codex'
+            session_mode={conversation.extra?.session_mode}
             agent_name={agent_name ?? (conversation.extra as { agent_name?: string })?.agent_name}
             hideSendBox={hideSendBox}
             emptySlot={emptySlot}
