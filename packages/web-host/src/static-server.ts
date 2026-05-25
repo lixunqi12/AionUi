@@ -10,9 +10,9 @@
  */
 
 import http, { type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { networkInterfaces } from 'node:os';
 import net, { type Socket } from 'node:net';
 import serveHandler from 'serve-handler';
+import { getPreferredRemoteAddress } from './networkAddress.js';
 
 export type StaticServerOptions = {
   staticDir: string;
@@ -31,16 +31,6 @@ export type StaticServerHandle = {
 };
 
 const DEFAULT_PORT = 25808;
-
-function getLanIP(): string | null {
-  const nets = networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const iface of nets[name] || []) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return null;
-}
 
 function forwardToBackend(req: IncomingMessage, res: ServerResponse, backendPort: number): void {
   const options: http.RequestOptions = {
@@ -150,7 +140,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
         public: opts.staticDir,
         rewrites: [{ source: '**', destination: '/index.html' }],
       });
-    } catch (err) {
+    } catch {
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'INTERNAL_ERROR' }));
@@ -218,7 +208,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
   });
 
   const actualPort = (tcp_server.address() as { port: number } | null)?.port ?? port;
-  const lanIP = allowRemote ? (getLanIP() ?? undefined) : undefined;
+  const lanIP = allowRemote ? (getPreferredRemoteAddress() ?? undefined) : undefined;
   const localUrl = `http://127.0.0.1:${actualPort}`;
   const networkUrl = lanIP ? `http://${lanIP}:${actualPort}` : undefined;
 
