@@ -25,6 +25,8 @@ const AcpChat: React.FC<{
   hideSendBox?: boolean;
   emptySlot?: React.ReactNode;
   loadedSkills?: string[];
+  forceIdle?: boolean;
+  settleStaleToolCalls?: boolean;
 }> = ({
   conversation_id,
   workspace,
@@ -35,14 +37,32 @@ const AcpChat: React.FC<{
   hideSendBox,
   emptySlot,
   loadedSkills,
+  forceIdle,
+  settleStaleToolCalls,
 }) => {
   useMessageLstCache(conversation_id);
   const teamPermission = useTeamPermission();
-  const messageState = useAcpMessage(conversation_id, { skipWarmup: Boolean(teamPermission) });
+  const rawMessageState = useAcpMessage(conversation_id, { skipWarmup: Boolean(teamPermission) });
+  const messageState = forceIdle
+    ? {
+        ...rawMessageState,
+        running: false,
+        aiProcessing: false,
+        hasHydratedRunningState: true,
+      }
+    : rawMessageState;
 
   return (
     <ConversationProvider
-      value={{ conversation_id: conversation_id, workspace, type: 'acp', cron_job_id, hideSendBox, loadedSkills }}
+      value={{
+        conversation_id: conversation_id,
+        workspace,
+        type: 'acp',
+        cron_job_id,
+        hideSendBox,
+        loadedSkills,
+        settleStaleToolCalls,
+      }}
     >
       <ConversationArtifactProvider conversation_id={conversation_id}>
         <div className='flex-1 flex flex-col px-20px min-h-0'>

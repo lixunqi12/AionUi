@@ -50,6 +50,8 @@ type TeamChatViewProps = {
   agent_name?: string;
   agent_icon?: string;
   isLeader?: boolean;
+  forceIdle?: boolean;
+  settleStaleToolCalls?: boolean;
 };
 
 /**
@@ -63,6 +65,8 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
   agent_name,
   agent_icon,
   isLeader,
+  forceIdle,
+  settleStaleToolCalls,
 }) => {
   // Single source of truth for the team greeting. Each *Chat simply forwards `emptySlot`
   // to MessageList; the empty state itself reads team_id / backend / preset info from the
@@ -83,6 +87,8 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
             agent_name={agent_name ?? (conversation.extra as { agent_name?: string })?.agent_name}
             hideSendBox={hideSendBox}
             emptySlot={emptySlot}
+            forceIdle={forceIdle}
+            settleStaleToolCalls={settleStaleToolCalls}
           />
         );
       case 'codex': // Legacy: codex now uses ACP protocol
@@ -96,6 +102,8 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
             agent_name={agent_name ?? (conversation.extra as { agent_name?: string })?.agent_name}
             hideSendBox={hideSendBox}
             emptySlot={emptySlot}
+            forceIdle={forceIdle}
+            settleStaleToolCalls={settleStaleToolCalls}
           />
         );
       case 'aionrs':

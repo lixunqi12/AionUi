@@ -20,6 +20,10 @@ const StatusTag: React.FC<{ status: string }> = ({ status }) => {
         return { color: 'blue', text: 'Pending' };
       case 'in_progress':
         return { color: 'orange', text: 'In Progress' };
+      case 'failed':
+        return { color: 'red', text: 'Failed' };
+      case 'completed':
+        return { color: 'green', text: 'Completed' };
       default:
         return { color: 'gray', text: status };
     }
@@ -81,6 +85,19 @@ const ContentView: React.FC<{ content: IMessageAcpToolCall['content']['update'][
   return null;
 };
 
+const getKindDisplayName = (kind: string) => {
+  switch (kind) {
+    case 'edit':
+      return 'File Edit';
+    case 'read':
+      return 'File Read';
+    case 'execute':
+      return 'Shell Command';
+    default:
+      return kind;
+  }
+};
+
 const MessageAcpToolCall: React.FC<{ message: IMessageAcpToolCall }> = ({ message }) => {
   const { content } = message;
   if (!content?.update) {
@@ -88,19 +105,6 @@ const MessageAcpToolCall: React.FC<{ message: IMessageAcpToolCall }> = ({ messag
   }
   const { update } = content;
   const { tool_call_id, kind, title, status, rawInput, content: diffContent } = update;
-
-  const getKindDisplayName = (kind: string) => {
-    switch (kind) {
-      case 'edit':
-        return 'File Edit';
-      case 'read':
-        return 'File Read';
-      case 'execute':
-        return 'Shell Command';
-      default:
-        return kind;
-    }
-  };
 
   return (
     <Card className='w-full mb-2' size='small' bordered>
@@ -121,8 +125,8 @@ const MessageAcpToolCall: React.FC<{ message: IMessageAcpToolCall }> = ({ messag
           )}
           {diffContent && diffContent.length > 0 && (
             <div>
-              {diffContent.map((content, index) => (
-                <ContentView key={index} content={content} />
+              {diffContent.map((item, index) => (
+                <ContentView key={index} content={item} />
               ))}
             </div>
           )}

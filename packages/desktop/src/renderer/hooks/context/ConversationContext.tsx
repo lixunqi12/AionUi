@@ -44,6 +44,12 @@ export interface ConversationContextValue {
    * Surfaced inside the SendBox `+` menu so users can review/jump to active skills.
    */
   loadedSkills?: string[];
+
+  /**
+   * Team mode recovery: when the team slot is idle but stale tool messages still
+   * say they are running, render them as stopped so the UI does not keep spinning.
+   */
+  settleStaleToolCalls?: boolean;
 }
 
 /**

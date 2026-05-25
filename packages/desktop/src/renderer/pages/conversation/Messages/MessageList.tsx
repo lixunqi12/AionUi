@@ -12,6 +12,7 @@ import type {
   IMessageToolGroup,
   TMessage,
 } from '@/common/chat/chatLib';
+import { settleStaleToolCallMessages } from '@/common/chat/settleStaleToolCalls';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
 import { CHAT_MESSAGE_JUMP_EVENT, type ChatMessageJumpDetail } from '@/renderer/utils/chat/chatMinimapEvents';
@@ -178,9 +179,13 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
 );
 
 const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }> = ({ emptySlot }) => {
-  const list = useMessageList();
+  const rawList = useMessageList();
   const artifacts = useConversationArtifacts();
   const conversationContext = useConversationContextSafe();
+  const list = useMemo(
+    () => (conversationContext?.settleStaleToolCalls ? settleStaleToolCallMessages(rawList) : rawList),
+    [conversationContext?.settleStaleToolCalls, rawList]
+  );
   useAutoPreviewOfficeFiles(conversationContext);
   const { t } = useTranslation();
   const location = useLocation();
