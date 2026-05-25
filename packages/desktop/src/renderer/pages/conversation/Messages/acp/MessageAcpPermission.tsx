@@ -6,8 +6,9 @@
 
 import type { IMessageAcpPermission } from '@/common/chat/chatLib';
 import { conversation } from '@/common/adapter/ipcBridge';
+import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
@@ -19,6 +20,7 @@ interface MessageAcpPermissionProps {
 const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ message }) => {
   const { options = [], tool_call } = message.content || {};
   const { t } = useTranslation();
+  const teamPermission = useTeamPermission();
 
   // 基于实际数据生成显示信息
   const getToolInfo = () => {
@@ -49,30 +51,53 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
   const [selected, setSelected] = useState<string | null>(null);
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
+  const allowOnceOption = useMemo(
+    () => options.find((option) => option?.kind === 'allow_once') ?? options.find((option) => option?.option_id),
+    [options]
+  );
+  const shouldAutoApprove =
+    Boolean(teamPermission?.isFullAccessMode) && teamPermission?.allConversationIds.includes(message.conversation_id);
+
+  const confirmWithOption = useCallback(
+    async (confirm_key: string) => {
+      if (hasResponded || isResponding || !confirm_key) return;
+
+      setIsResponding(true);
+      try {
+        const invokeData = {
+          confirm_key,
+          msg_id: message.id,
+          conversation_id: message.conversation_id,
+          call_id: tool_call?.tool_call_id || message.id,
+        };
+
+        await conversation.confirmMessage.invoke(invokeData);
+        setHasResponded(true);
+      } catch (error) {
+        // Handle error case - could add error logging here
+        console.error('Error confirming permission:', error);
+      } finally {
+        setIsResponding(false);
+      }
+    },
+    [hasResponded, isResponding, message.conversation_id, message.id, tool_call?.tool_call_id]
+  );
+
+  useEffect(() => {
+    if (!shouldAutoApprove || !allowOnceOption?.option_id || hasResponded || isResponding) return;
+    void confirmWithOption(allowOnceOption.option_id);
+  }, [allowOnceOption?.option_id, confirmWithOption, hasResponded, isResponding, shouldAutoApprove]);
 
   const handleConfirm = async () => {
-    if (hasResponded || !selected) return;
-
-    setIsResponding(true);
-    try {
-      const invokeData = {
-        confirm_key: selected,
-        msg_id: message.id,
-        conversation_id: message.conversation_id,
-        call_id: tool_call?.tool_call_id || message.id,
-      };
-
-      await conversation.confirmMessage.invoke(invokeData);
-      setHasResponded(true);
-    } catch (error) {
-      // Handle error case - could add error logging here
-      console.error('Error confirming permission:', error);
-    } finally {
-      setIsResponding(false);
-    }
+    if (!selected) return;
+    await confirmWithOption(selected);
   };
 
   if (!tool_call) {
+    return null;
+  }
+
+  if (shouldAutoApprove) {
     return null;
   }
 

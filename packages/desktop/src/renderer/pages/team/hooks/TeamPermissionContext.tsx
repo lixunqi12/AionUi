@@ -33,6 +33,10 @@ type TeamPermissionContextValue = {
   leaderConversationId: string;
   /** All agent conversation IDs in this team (for centralized confirmation listening) */
   allConversationIds: string[];
+  /** Current team permission mode, if persisted on the team record */
+  sessionMode?: string;
+  /** Whether team permission mode should bypass per-command prompts */
+  isFullAccessMode: boolean;
   /** Propagate a permission mode change from the leader to all member agents */
   propagateMode: (mode: string) => void;
   /** Trigger session warmup (idempotent, returns cached promise) */
@@ -62,6 +66,8 @@ export const TeamPermissionProvider: React.FC<{
     [leaderConversationId, allConversationIds]
   );
   const targetConversationIdsKey = targetConversationIds.join('\n');
+  const normalizedSessionMode = sessionMode?.trim();
+  const isFullAccessMode = normalizedSessionMode === 'full-access';
 
   const warmupSession = useCallback((): Promise<void> => {
     if (!warmupPromiseRef.current) {
@@ -103,7 +109,7 @@ export const TeamPermissionProvider: React.FC<{
   );
 
   useEffect(() => {
-    const mode = sessionMode?.trim();
+    const mode = normalizedSessionMode;
     if (!mode || targetConversationIds.length === 0) return;
 
     const syncKey = `${team_id}:${mode}:${targetConversationIdsKey}`;
@@ -111,7 +117,7 @@ export const TeamPermissionProvider: React.FC<{
     lastSessionModeSyncKeyRef.current = syncKey;
 
     syncModeToTeamAgents(mode);
-  }, [sessionMode, syncModeToTeamAgents, targetConversationIds.length, targetConversationIdsKey, team_id]);
+  }, [normalizedSessionMode, syncModeToTeamAgents, targetConversationIds.length, targetConversationIdsKey, team_id]);
 
   const value = useMemo<TeamPermissionContextValue>(
     () => ({
@@ -119,10 +125,20 @@ export const TeamPermissionProvider: React.FC<{
       isLeaderAgent,
       leaderConversationId,
       allConversationIds,
+      sessionMode: normalizedSessionMode,
+      isFullAccessMode,
       propagateMode,
       warmupSession,
     }),
-    [isLeaderAgent, leaderConversationId, allConversationIds, propagateMode, warmupSession]
+    [
+      isLeaderAgent,
+      leaderConversationId,
+      allConversationIds,
+      normalizedSessionMode,
+      isFullAccessMode,
+      propagateMode,
+      warmupSession,
+    ]
   );
 
   return <TeamPermissionContext.Provider value={value}>{children}</TeamPermissionContext.Provider>;
