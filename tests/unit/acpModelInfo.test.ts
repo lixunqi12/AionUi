@@ -6,6 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { buildAcpModelInfo, summarizeAcpModelInfo } from '../../src/process/agent/acp/modelInfo';
+import {
+  createDefaultCodexModelInfo,
+  DEFAULT_CODEX_MODEL_ID,
+  DEFAULT_CODEX_MODELS,
+  mergeDefaultCodexModelInfo,
+} from '../../src/common/types/codex/codexModels';
 import type { AcpSessionConfigOption, AcpSessionModels } from '../../src/types/acpTypes';
 
 describe('buildAcpModelInfo', () => {
@@ -88,5 +94,37 @@ describe('buildAcpModelInfo', () => {
       canSwitch: true,
       sampleModelIds: ['gpt-5.3-codex', 'gpt-5.4'],
     });
+  });
+});
+
+describe('Codex default model info', () => {
+  it('defaults to the newest Codex model first', () => {
+    expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-5.5');
+    expect(DEFAULT_CODEX_MODELS.map((model) => model.id)).toEqual(
+      expect.arrayContaining(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark'])
+    );
+  });
+
+  it('builds a switchable fallback model list', () => {
+    const result = createDefaultCodexModelInfo();
+
+    expect(result.currentModelId).toBe('gpt-5.5');
+    expect(result.availableModels[0]).toEqual({ id: 'gpt-5.5', label: 'gpt-5.5' });
+    expect(result.canSwitch).toBe(true);
+  });
+
+  it('merges fresh defaults into stale cached Codex model info', () => {
+    const result = mergeDefaultCodexModelInfo({
+      source: 'models',
+      currentModelId: 'gpt-5.4',
+      currentModelLabel: 'gpt-5.4',
+      availableModels: [{ id: 'gpt-5.4', label: 'gpt-5.4' }],
+      canSwitch: false,
+    });
+
+    expect(result.currentModelId).toBe('gpt-5.4');
+    expect(result.currentModelLabel).toBe('gpt-5.4');
+    expect(result.availableModels.map((model) => model.id)).toContain('gpt-5.5');
+    expect(result.canSwitch).toBe(true);
   });
 });

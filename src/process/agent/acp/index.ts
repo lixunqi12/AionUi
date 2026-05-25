@@ -24,6 +24,7 @@ import type {
   ToolCallUpdate,
 } from '@/common/types/acpTypes';
 import { AcpErrorType, createAcpError } from '@/common/types/acpTypes';
+import { mergeDefaultCodexModelInfo } from '@/common/types/codex/codexModels';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -498,7 +499,8 @@ export class AcpAgent {
    * Prefers stable configOptions API, falls back to unstable models API.
    */
   getModelInfo(): AcpModelInfo | null {
-    return buildAcpModelInfo(this.connection.getConfigOptions(), this.connection.getModels());
+    const modelInfo = buildAcpModelInfo(this.connection.getConfigOptions(), this.connection.getModels());
+    return this.extra.backend === 'codex' ? mergeDefaultCodexModelInfo(modelInfo) : modelInfo;
   }
 
   /**

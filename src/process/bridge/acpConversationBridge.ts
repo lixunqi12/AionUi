@@ -15,6 +15,7 @@ import { AionrsManager } from '@process/task/AionrsManager';
 import { mcpService } from '@/process/services/mcpServices/McpService';
 import { mainLog, mainWarn } from '@/process/utils/mainLogger';
 import { ipcBridge } from '@/common';
+import { mergeDefaultCodexModelInfo } from '@/common/types/codex/codexModels';
 import * as os from 'os';
 
 export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager): void {
@@ -221,7 +222,8 @@ export function initAcpConversationBridge(workerTaskManager: IWorkerTaskManager)
       await connection.connect(backend, agent?.cliPath, tempDir, agent?.acpArgs);
       await connection.newSession(tempDir);
 
-      const modelInfo = buildAcpModelInfo(connection.getConfigOptions(), connection.getModels());
+      const probedModelInfo = buildAcpModelInfo(connection.getConfigOptions(), connection.getModels());
+      const modelInfo = backend === 'codex' ? mergeDefaultCodexModelInfo(probedModelInfo) : probedModelInfo;
       if (backend === 'codex') {
         const initializeResult = connection.getInitializeResponse() as unknown as Record<string, unknown> | null;
         mainLog('[ACP codex]', 'probeModelInfo completed', {

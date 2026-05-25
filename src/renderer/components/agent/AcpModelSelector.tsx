@@ -9,6 +9,7 @@ import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { ConfigStorage } from '@/common/config/storage';
 import type { IProvider } from '@/common/config/storage';
 import type { AcpModelInfo } from '@/common/types/acpTypes';
+import { mergeDefaultCodexModelInfo } from '@/common/types/codex/codexModels';
 import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -61,7 +62,7 @@ const AcpModelSelector: React.FC<{
       .then((result) => {
         if (cancelled) return;
         if (result.success && result.data?.modelInfo) {
-          const info = result.data.modelInfo;
+          const info = backend === 'codex' ? mergeDefaultCodexModelInfo(result.data.modelInfo) : result.data.modelInfo;
           if (backend === 'codex') {
             console.log('[AcpModelSelector][codex] Initial model info:', info);
           }
@@ -110,16 +111,19 @@ const AcpModelSelector: React.FC<{
         const cached = await ConfigStorage.get('acp.cachedModels');
         if (isCancelled) return;
         const cachedInfo = cached?.[backendKey];
-        if (cachedInfo?.availableModels?.length > 0) {
+        const normalizedCachedInfo =
+          backendKey === 'codex' && cachedInfo ? mergeDefaultCodexModelInfo(cachedInfo) : cachedInfo;
+        if (normalizedCachedInfo?.availableModels?.length > 0) {
           if (backendKey === 'codex') {
-            console.log('[AcpModelSelector][codex] Loaded cached model info:', cachedInfo);
+            console.log('[AcpModelSelector][codex] Loaded cached model info:', normalizedCachedInfo);
           }
-          const effectiveModelId = initialModelId || cachedInfo.currentModelId || null;
+          const effectiveModelId = initialModelId || normalizedCachedInfo.currentModelId || null;
           setModelInfo({
-            ...cachedInfo,
+            ...normalizedCachedInfo,
             currentModelId: effectiveModelId,
             currentModelLabel:
-              (effectiveModelId && cachedInfo.availableModels.find((m) => m.id === effectiveModelId)?.label) ||
+              (effectiveModelId &&
+                normalizedCachedInfo.availableModels.find((m) => m.id === effectiveModelId)?.label) ||
               effectiveModelId,
           });
         }
@@ -134,7 +138,10 @@ const AcpModelSelector: React.FC<{
     const handler = (message: IResponseMessage) => {
       if (message.conversation_id !== conversationId) return;
       if (message.type === 'acp_model_info' && message.data) {
-        const incoming = message.data as AcpModelInfo;
+        const incoming =
+          backend === 'codex'
+            ? mergeDefaultCodexModelInfo(message.data as AcpModelInfo)
+            : (message.data as AcpModelInfo);
         if (backend === 'codex') {
           console.log('[AcpModelSelector][codex] Stream model info:', incoming);
         }
