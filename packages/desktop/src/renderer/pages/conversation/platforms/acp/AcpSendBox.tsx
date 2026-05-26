@@ -105,23 +105,19 @@ const AcpSendBox: React.FC<{
   const { checkAndUpdateTitle } = useAutoTitle();
   const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
 
-  // In team mode, warmup the agent then fetch slash commands
-  useEffect(() => {
-    if (!teamPermission) return;
-    void teamPermission
-      .warmupSession(conversation_id)
-      .then(() => {
-        fetchSlashCommands();
-      })
-      .catch(() => {});
-  }, [teamPermission, conversation_id, fetchSlashCommands]);
-
   const handleContentChange = useCallback(
     (val: string) => {
-      if (val && teamPermission) teamPermission.warmupSession();
+      if (val && teamPermission) {
+        void teamPermission
+          .warmupSession(conversation_id)
+          .then(() => {
+            fetchSlashCommands();
+          })
+          .catch(() => {});
+      }
       setContent(val);
     },
-    [teamPermission, setContent]
+    [teamPermission, conversation_id, fetchSlashCommands, setContent]
   );
   const { setSendBoxHandler } = usePreviewContext();
 

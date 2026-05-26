@@ -145,15 +145,10 @@ export const TeamPermissionProvider: React.FC<{
   );
 
   useEffect(() => {
-    const mode = normalizedSessionMode;
-    if (!mode || targetConversationIds.length === 0) return;
+    if (!normalizedSessionMode || targetConversationIds.length === 0) return;
 
-    const syncKey = `${team_id}:${mode}:${targetConversationIdsKey}`;
-    if (lastSessionModeSyncKeyRef.current === syncKey) return;
-    lastSessionModeSyncKeyRef.current = syncKey;
-
-    syncModeToTeamAgents(mode);
-  }, [normalizedSessionMode, syncModeToTeamAgents, targetConversationIds.length, targetConversationIdsKey, team_id]);
+    lastSessionModeSyncKeyRef.current = `${team_id}:${normalizedSessionMode}:${targetConversationIdsKey}`;
+  }, [normalizedSessionMode, targetConversationIds.length, targetConversationIdsKey, team_id]);
 
   useEffect(() => {
     if (!isFullAccessMode || targetConversationIds.length === 0) return;

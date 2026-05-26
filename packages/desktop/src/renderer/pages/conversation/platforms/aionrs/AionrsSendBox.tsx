@@ -111,10 +111,15 @@ const AionrsSendBox: React.FC<{
 
   const handleContentChange = useCallback(
     (val: string) => {
-      if (val && teamPermission) teamPermission.warmupSession();
+      if (val && teamPermission) {
+        void teamPermission
+          .warmupSession(conversation_id)
+          .then(() => setAgentWarmed(true))
+          .catch(() => {});
+      }
       setContent(val);
     },
-    [teamPermission, setContent]
+    [teamPermission, conversation_id, setContent]
   );
 
   const [agentWarmed, setAgentWarmed] = useState(false);
@@ -129,12 +134,7 @@ const AionrsSendBox: React.FC<{
   useEffect(() => {
     if (!conversation_id) return;
     if (teamPermission) {
-      void teamPermission
-        .warmupSession(conversation_id)
-        .then(() => {
-          setAgentWarmed(true);
-        })
-        .catch(() => {});
+      setAgentWarmed(false);
       return;
     }
     setAgentWarmed(false);
