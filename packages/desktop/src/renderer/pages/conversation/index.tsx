@@ -2,22 +2,42 @@ import { ipcBridge } from '@/common';
 import { Message, Spin } from '@arco-design/web-react';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import ChatConversation from './components/ChatConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 
+const shouldUseMobileWebConversation = (): boolean => {
+  if (typeof window === 'undefined') return false;
+
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  if (userAgent.includes('electron')) return false;
+
+  const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const narrowViewport = window.innerWidth <= 760;
+  return coarsePointer || narrowViewport;
+};
+
 const ChatConversationIndex: React.FC = () => {
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { closePreview } = usePreviewContext();
   const { syncTitleFromHistory } = useAutoTitle();
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const notFoundHandledIdRef = useRef<string | undefined>(undefined);
   const defaultConversationTitle = t('conversation.welcome.newConversation');
+
+  useEffect(() => {
+    if (!id) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('desktop') === '1') return;
+    if (!shouldUseMobileWebConversation()) return;
+    navigate(`/mobile/conversation/${id}`, { replace: true });
+  }, [id, location.search, navigate]);
 
   useEffect(() => {
     if (!id) return;

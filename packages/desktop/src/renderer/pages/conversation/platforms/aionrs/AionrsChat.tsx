@@ -33,6 +33,9 @@ const AionrsChat: React.FC<{
   loadedMcpServers?: string[];
   loadedMcpStatuses?: IConversationMcpStatus[];
   agent_name?: string;
+  mobileMode?: boolean;
+  messageRefreshIntervalMs?: number;
+  messagePageSize?: number;
 }> = ({
   conversation_id,
   workspace,
@@ -44,8 +47,16 @@ const AionrsChat: React.FC<{
   loadedMcpServers,
   loadedMcpStatuses,
   agent_name,
+  mobileMode,
+  messageRefreshIntervalMs,
+  messagePageSize,
 }) => {
-  useMessageLstCache(conversation_id);
+  useMessageLstCache(conversation_id, {
+    pageSize: messagePageSize,
+    refreshIntervalMs: messageRefreshIntervalMs,
+    refreshOnVisibility: Boolean(messageRefreshIntervalMs),
+    partialRefresh: Boolean(messagePageSize),
+  });
   usePendingConfirmationsRecovery(conversation_id);
   const updateLocalImage = LocalImageView.useUpdateLocalImage();
   useEffect(() => {
@@ -66,7 +77,7 @@ const AionrsChat: React.FC<{
   return (
     <ConversationProvider value={conversationValue}>
       <ConversationArtifactProvider conversation_id={conversation_id}>
-        <div className='flex-1 flex flex-col px-20px min-h-0'>
+        <div className={`flex-1 flex flex-col min-h-0 ${mobileMode ? 'mobile-chat__body' : 'px-20px'}`}>
           <FlexFullContainer>
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>

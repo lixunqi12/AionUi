@@ -34,6 +34,9 @@ const AcpChat: React.FC<{
   loadedSkills?: string[];
   loadedMcpServers?: string[];
   loadedMcpStatuses?: IConversationMcpStatus[];
+  mobileMode?: boolean;
+  messageRefreshIntervalMs?: number;
+  messagePageSize?: number;
 }> = ({
   conversation_id,
   workspace,
@@ -46,8 +49,16 @@ const AcpChat: React.FC<{
   loadedSkills,
   loadedMcpServers,
   loadedMcpStatuses,
+  mobileMode,
+  messageRefreshIntervalMs,
+  messagePageSize,
 }) => {
-  useMessageLstCache(conversation_id);
+  useMessageLstCache(conversation_id, {
+    pageSize: messagePageSize,
+    refreshIntervalMs: messageRefreshIntervalMs,
+    refreshOnVisibility: Boolean(messageRefreshIntervalMs),
+    partialRefresh: Boolean(messagePageSize),
+  });
   usePendingConfirmationsRecovery(conversation_id);
   const teamPermission = useTeamPermission();
   const messageState = useAcpMessage(conversation_id, { skipWarmup: Boolean(teamPermission) });
@@ -66,7 +77,7 @@ const AcpChat: React.FC<{
       }}
     >
       <ConversationArtifactProvider conversation_id={conversation_id}>
-        <div className='flex-1 flex flex-col px-20px min-h-0'>
+        <div className={`flex-1 flex flex-col min-h-0 ${mobileMode ? 'mobile-chat__body' : 'px-20px'}`}>
           <FlexFullContainer>
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>

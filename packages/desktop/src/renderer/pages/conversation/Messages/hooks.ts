@@ -554,19 +554,80 @@ export function normalizeDbMessage(msg: TMessage): TMessage {
   }
 }
 
-export const useMessageLstCache = (key: string) => {
+export const MESSAGE_LIST_REFRESH_EVENT = 'aionui:message-list-refresh';
+
+type MessageListCacheOptions = {
+  pageSize?: number;
+  refreshIntervalMs?: number;
+  refreshOnVisibility?: boolean;
+  partialRefresh?: boolean;
+};
+
+const getMessageTime = (message: TMessage): number => {
+  const createdAt =
+    (message as { created_at?: number; createdAt?: number }).created_at ??
+    (message as { createdAt?: number }).createdAt;
+  return typeof createdAt === 'number' ? createdAt : 0;
+};
+
+const mergePartialDatabaseMessages = (
+  currentList: TMessage[],
+  chronologicalMessages: TMessage[],
+  conversationId: string
+): TMessage[] => {
+  const sameConversation = currentList.filter((m) => m.conversation_id === conversationId);
+  if (!sameConversation.length) return chronologicalMessages;
+
+  const nextList = sameConversation.slice();
+  const idIndex = new Map<string, number>();
+  const msgIdIndex = new Map<string, number>();
+
+  nextList.forEach((message, index) => {
+    if (message.id) idIndex.set(message.id, index);
+    if (message.msg_id) msgIdIndex.set(message.msg_id, index);
+  });
+
+  for (const dbMsg of chronologicalMessages) {
+    const existingIndex =
+      (dbMsg.id ? idIndex.get(dbMsg.id) : undefined) ?? (dbMsg.msg_id ? msgIdIndex.get(dbMsg.msg_id) : undefined);
+
+    if (existingIndex !== undefined) {
+      const existingMsg = nextList[existingIndex];
+      nextList[existingIndex] =
+        dbMsg.type === 'text' && existingMsg.type === 'text' ? preferTextMessageVersion(dbMsg, existingMsg) : dbMsg;
+      continue;
+    }
+
+    const newIndex = nextList.length;
+    nextList.push(dbMsg);
+    if (dbMsg.id) idIndex.set(dbMsg.id, newIndex);
+    if (dbMsg.msg_id) msgIdIndex.set(dbMsg.msg_id, newIndex);
+  }
+
+  return nextList.toSorted((a, b) => getMessageTime(a) - getMessageTime(b));
+};
+
+export const useMessageLstCache = (key: string, options: MessageListCacheOptions = {}) => {
   const update = useUpdateMessageList();
   const setLoading = useUpdateMessageListLoading();
+  const { pageSize = 10000, refreshIntervalMs = 0, refreshOnVisibility = false, partialRefresh = false } = options;
+
   const loadMessages = useCallback(async (): Promise<TMessage[]> => {
     const result = await ipcBridge.database.getConversationMessages.invoke({
       conversation_id: key,
       page: 0,
-      page_size: 10000,
+      page_size: pageSize,
       content_mode: 'compact',
+      ...(partialRefresh ? { order: 'DESC' } : {}),
     });
-    const messages = result?.items?.map(normalizeDbMessage);
+    const rawMessages = result?.items?.map(normalizeDbMessage);
+    const messages = partialRefresh ? rawMessages?.toReversed() : rawMessages;
     if (messages && Array.isArray(messages)) {
       update((currentList) => {
+        if (partialRefresh) {
+          return mergePartialDatabaseMessages(currentList, messages, key);
+        }
+
         if (!currentList.length) return messages;
         const sameConversation = currentList.filter((m) => m.conversation_id === key);
         if (!sameConversation.length) return messages;
@@ -598,7 +659,7 @@ export const useMessageLstCache = (key: string) => {
       return messages;
     }
     return [];
-  }, [key, update]);
+  }, [key, pageSize, partialRefresh, update]);
 
   useEffect(() => {
     if (!key) return;
@@ -617,6 +678,53 @@ export const useMessageLstCache = (key: string) => {
       cancelled = true;
     };
   }, [key, loadMessages, setLoading]);
+
+  useEffect(() => {
+    if (!key || refreshIntervalMs <= 0) return;
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh messages from database:', error);
+      });
+    }, refreshIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [key, loadMessages, refreshIntervalMs]);
+
+  useEffect(() => {
+    if (!key || !refreshOnVisibility) return;
+
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh visible messages:', error);
+      });
+    };
+
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [key, loadMessages, refreshOnVisibility]);
+
+  useEffect(() => {
+    if (!key) return;
+
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId?: string; conversation_id?: string }>).detail;
+      const detailConversationId = detail?.conversation_id ?? detail?.conversationId;
+      if (detailConversationId && detailConversationId !== key) return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh requested messages:', error);
+      });
+    };
+
+    window.addEventListener(MESSAGE_LIST_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(MESSAGE_LIST_REFRESH_EVENT, refresh);
+  }, [key, loadMessages]);
 };
 
 export const beforeUpdateMessageList = (fn: (list: TMessage[]) => TMessage[]) => {

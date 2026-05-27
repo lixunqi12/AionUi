@@ -24,8 +24,26 @@ const OpenClawChat: React.FC<{
   hideSendBox?: boolean;
   emptySlot?: React.ReactNode;
   loadedSkills?: string[];
-}> = ({ conversation_id, workspace, cron_job_id, hideSendBox, emptySlot, loadedSkills }) => {
-  useMessageLstCache(conversation_id);
+  mobileMode?: boolean;
+  messageRefreshIntervalMs?: number;
+  messagePageSize?: number;
+}> = ({
+  conversation_id,
+  workspace,
+  cron_job_id,
+  hideSendBox,
+  emptySlot,
+  loadedSkills,
+  mobileMode,
+  messageRefreshIntervalMs,
+  messagePageSize,
+}) => {
+  useMessageLstCache(conversation_id, {
+    pageSize: messagePageSize,
+    refreshIntervalMs: messageRefreshIntervalMs,
+    refreshOnVisibility: Boolean(messageRefreshIntervalMs),
+    partialRefresh: Boolean(messagePageSize),
+  });
   const updateLocalImage = LocalImageView.useUpdateLocalImage();
   useEffect(() => {
     updateLocalImage({ root: workspace });
@@ -41,7 +59,7 @@ const OpenClawChat: React.FC<{
         loadedSkills,
       }}
     >
-      <div className='flex-1 flex flex-col px-20px min-h-0'>
+      <div className={`flex-1 flex flex-col min-h-0 ${mobileMode ? 'mobile-chat__body' : 'px-20px'}`}>
         <FlexFullContainer>
           <MessageList className='flex-1' emptySlot={emptySlot}></MessageList>
         </FlexFullContainer>
