@@ -114,13 +114,10 @@ describe('static-server', () => {
     expect(json.proxied).toBe(true);
   });
 
-  it('/qr-login reverse-proxies to backend (no SPA fallback)', async () => {
+  it('/qr-login serves a backend-compatible browser login page', async () => {
+    let backendHits = 0;
     const backend = await startMockBackend((req, res) => {
-      if (req.url === '/qr-login?token=abc' && req.method === 'GET') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end('<html>qr login backend</html>');
-        return;
-      }
+      backendHits += 1;
       res.writeHead(404).end();
     });
     stopBackend = backend.close;
@@ -128,7 +125,11 @@ describe('static-server', () => {
 
     const r = await fetch(`${handle.localUrl}/qr-login?token=abc`);
     expect(r.status).toBe(200);
-    expect(await r.text()).toContain('qr login backend');
+    const text = await r.text();
+    expect(text).toContain('/api/auth/qr-login');
+    expect(text).toContain('qr_token');
+    expect(text).not.toContain('qrToken');
+    expect(backendHits).toBe(0);
   });
 
   it('/api/auth/user reverse-proxies to backend (no local handler)', async () => {
