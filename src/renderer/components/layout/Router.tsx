@@ -18,6 +18,7 @@ const PetSettings = React.lazy(() => import('@renderer/pages/settings/PetSetting
 const ExtensionSettingsPage = React.lazy(() => import('@renderer/pages/settings/ExtensionSettingsPage'));
 const LoginPage = React.lazy(() => import('@renderer/pages/login'));
 const QRLoginPage = React.lazy(() => import('@renderer/pages/qr-login'));
+const MobileConversation = React.lazy(() => import('@renderer/pages/mobile-conversation'));
 const ComponentsShowcase = React.lazy(() => import('@renderer/pages/TestShowcase'));
 const ScheduledTasksPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage'));
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
@@ -54,6 +55,20 @@ const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layout }) =
   return React.cloneElement(layout);
 };
 
+const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { status } = useAuth();
+
+  if (status === 'checking') {
+    return <AppLoader />;
+  }
+
+  if (status !== 'authenticated') {
+    return <Navigate to='/login' replace />;
+  }
+
+  return children;
+};
+
 const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
   normalizeQRLoginHashRoute();
@@ -65,6 +80,10 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
         <Route
           path='/login'
           element={status === 'authenticated' ? <Navigate to='/guid' replace /> : withRouteFallback(LoginPage)}
+        />
+        <Route
+          path='/mobile/conversation/:id'
+          element={<ProtectedRoute>{withRouteFallback(MobileConversation)}</ProtectedRoute>}
         />
         <Route element={<ProtectedLayout layout={layout} />}>
           <Route index element={<Navigate to='/guid' replace />} />

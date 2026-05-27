@@ -28,6 +28,9 @@ const GeminiChat: React.FC<{
   agentSlotId?: string;
   sessionMode?: string;
   emptySlot?: React.ReactNode;
+  mobileMode?: boolean;
+  messageRefreshIntervalMs?: number;
+  messagePageSize?: number;
 }> = ({
   conversation_id,
   workspace,
@@ -38,8 +41,16 @@ const GeminiChat: React.FC<{
   agentSlotId,
   sessionMode,
   emptySlot,
+  mobileMode,
+  messageRefreshIntervalMs,
+  messagePageSize,
 }) => {
-  useMessageLstCache(conversation_id);
+  useMessageLstCache(conversation_id, {
+    pageSize: messagePageSize,
+    refreshIntervalMs: messageRefreshIntervalMs,
+    refreshOnVisibility: Boolean(messageRefreshIntervalMs),
+    partialRefresh: Boolean(messagePageSize),
+  });
   const updateLocalImage = LocalImageView.useUpdateLocalImage();
   useEffect(() => {
     updateLocalImage({ root: workspace });
@@ -50,7 +61,7 @@ const GeminiChat: React.FC<{
 
   return (
     <ConversationProvider value={conversationValue}>
-      <div className='flex-1 flex flex-col px-20px min-h-0'>
+      <div className={`flex-1 flex flex-col min-h-0 ${mobileMode ? 'mobile-chat__body' : 'px-20px'}`}>
         <FlexFullContainer>
           <MessageList className='flex-1' emptySlot={emptySlot}></MessageList>
         </FlexFullContainer>

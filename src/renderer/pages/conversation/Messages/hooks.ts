@@ -363,72 +363,186 @@ export const useRemoveMessageByMsgId = () => {
   );
 };
 
-export const useMessageLstCache = (key: string) => {
+export const MESSAGE_LIST_REFRESH_EVENT = 'aionui:message-list-refresh';
+
+type MessageListCacheOptions = {
+  pageSize?: number;
+  refreshIntervalMs?: number;
+  refreshOnVisibility?: boolean;
+  partialRefresh?: boolean;
+};
+
+const getMessageTime = (message: TMessage): number => {
+  const createdAt = (message as { createdAt?: number }).createdAt;
+  return typeof createdAt === 'number' ? createdAt : 0;
+};
+
+const pickNewestMessageVersion = (dbMsg: TMessage, streamMsg: TMessage): TMessage => {
+  if (dbMsg.type !== 'text' || streamMsg.type !== 'text') {
+    return dbMsg;
+  }
+
+  const dbContent =
+    typeof dbMsg.content === 'object' && 'content' in dbMsg.content
+      ? String((dbMsg.content as { content: unknown }).content)
+      : '';
+  const streamContent =
+    typeof streamMsg.content === 'object' && 'content' in streamMsg.content
+      ? String((streamMsg.content as { content: unknown }).content)
+      : '';
+
+  return streamContent.length > dbContent.length ? streamMsg : dbMsg;
+};
+
+const mergePartialDatabaseMessages = (
+  currentList: TMessage[],
+  chronologicalMessages: TMessage[],
+  conversationId: string
+): TMessage[] => {
+  const sameConversation = currentList.filter((m) => m.conversation_id === conversationId);
+  if (!sameConversation.length) return chronologicalMessages;
+
+  const nextList = sameConversation.slice();
+  const idIndex = new Map<string, number>();
+  const msgIdIndex = new Map<string, number>();
+
+  nextList.forEach((message, index) => {
+    if (message.id) idIndex.set(message.id, index);
+    if (message.msg_id) msgIdIndex.set(message.msg_id, index);
+  });
+
+  for (const dbMsg of chronologicalMessages) {
+    const existingIndex =
+      (dbMsg.id ? idIndex.get(dbMsg.id) : undefined) ?? (dbMsg.msg_id ? msgIdIndex.get(dbMsg.msg_id) : undefined);
+
+    if (existingIndex !== undefined) {
+      nextList[existingIndex] = pickNewestMessageVersion(dbMsg, nextList[existingIndex]);
+      continue;
+    }
+
+    const newIndex = nextList.length;
+    nextList.push(dbMsg);
+    if (dbMsg.id) idIndex.set(dbMsg.id, newIndex);
+    if (dbMsg.msg_id) msgIdIndex.set(dbMsg.msg_id, newIndex);
+  }
+
+  return nextList.toSorted((a, b) => getMessageTime(a) - getMessageTime(b));
+};
+
+export const useMessageLstCache = (key: string, options: MessageListCacheOptions = {}) => {
   const update = useUpdateMessageList();
+  const { pageSize = 10000, refreshIntervalMs = 0, refreshOnVisibility = false, partialRefresh = false } = options;
+
+  const loadMessages = useCallback(async () => {
+    if (!key) return;
+
+    const messages = await ipcBridge.database.getConversationMessages.invoke({
+      conversation_id: key,
+      page: 0,
+      pageSize,
+      order: 'DESC',
+    });
+
+    if (!messages || !Array.isArray(messages)) {
+      return;
+    }
+
+    const chronologicalMessages = messages.toReversed();
+    // Merge DB messages with any real-time streaming messages already in the list.
+    // This prevents a race condition where streaming messages (added via IPC before
+    // the DB load completes) could cause DB-only messages (e.g. cron user messages
+    // whose IPC event was emitted before the component mounted) to be lost.
+    // Use both msg_id and id for deduplication since DB messages and streaming
+    // messages share the same msg_id but may have different id values
+    // (streaming messages get new UUIDs from transformMessage).
+    update((currentList) => {
+      if (partialRefresh) {
+        return mergePartialDatabaseMessages(currentList, chronologicalMessages, key);
+      }
+
+      if (!currentList.length) return chronologicalMessages;
+      // Only keep streaming messages that belong to the current conversation
+      // to prevent messages from a previous conversation leaking into the new one
+      const sameConversation = currentList.filter((m) => m.conversation_id === key);
+      if (!sameConversation.length) return chronologicalMessages;
+      const dbIds = new Set(chronologicalMessages.map((m) => m.id));
+      const dbMsgIds = new Set(chronologicalMessages.map((m) => m.msg_id).filter(Boolean));
+
+      // Build a map of streaming messages by msg_id for content-length comparison.
+      // During streaming, the DB may have an older snapshot (due to 2000ms save debounce),
+      // so we keep whichever version has more content to avoid losing streamed data.
+      const streamingByMsgId = new Map<string, TMessage>();
+      for (const m of sameConversation) {
+        if (m.msg_id && m.type === 'text' && dbMsgIds.has(m.msg_id)) {
+          streamingByMsgId.set(m.msg_id, m);
+        }
+      }
+
+      // Replace DB messages with streaming versions when streaming has more content
+      const mergedMessages = chronologicalMessages.map((dbMsg) => {
+        if (!dbMsg.msg_id || dbMsg.type !== 'text') return dbMsg;
+        const streamMsg = streamingByMsgId.get(dbMsg.msg_id);
+        if (!streamMsg) return dbMsg;
+        return pickNewestMessageVersion(dbMsg, streamMsg);
+      });
+
+      const streamingOnly = sameConversation.filter((m) => !dbIds.has(m.id) && !(m.msg_id && dbMsgIds.has(m.msg_id)));
+      if (!streamingOnly.length && !streamingByMsgId.size) return chronologicalMessages;
+      return [...mergedMessages, ...streamingOnly];
+    });
+  }, [key, pageSize, partialRefresh, update]);
+
+  useEffect(() => {
+    void loadMessages().catch((error) => {
+      console.error('[useMessageLstCache] Failed to load messages from database:', error);
+    });
+  }, [loadMessages]);
+
+  useEffect(() => {
+    if (!key || refreshIntervalMs <= 0) return;
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh messages from database:', error);
+      });
+    }, refreshIntervalMs);
+
+    return () => window.clearInterval(timer);
+  }, [key, loadMessages, refreshIntervalMs]);
+
+  useEffect(() => {
+    if (!key || !refreshOnVisibility) return;
+
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh visible messages:', error);
+      });
+    };
+
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [key, loadMessages, refreshOnVisibility]);
+
   useEffect(() => {
     if (!key) return;
-    void ipcBridge.database.getConversationMessages
-      .invoke({
-        conversation_id: key,
-        page: 0,
-        pageSize: 10000, // Load all messages (up to 10k per conversation)
-      })
-      .then((messages) => {
-        if (messages && Array.isArray(messages)) {
-          // Merge DB messages with any real-time streaming messages already in the list.
-          // This prevents a race condition where streaming messages (added via IPC before
-          // the DB load completes) could cause DB-only messages (e.g. cron user messages
-          // whose IPC event was emitted before the component mounted) to be lost.
-          // Use both msg_id and id for deduplication since DB messages and streaming
-          // messages share the same msg_id but may have different id values
-          // (streaming messages get new UUIDs from transformMessage).
-          update((currentList) => {
-            if (!currentList.length) return messages;
-            // Only keep streaming messages that belong to the current conversation
-            // to prevent messages from a previous conversation leaking into the new one
-            const sameConversation = currentList.filter((m) => m.conversation_id === key);
-            if (!sameConversation.length) return messages;
-            const dbIds = new Set(messages.map((m) => m.id));
-            const dbMsgIds = new Set(messages.map((m) => m.msg_id).filter(Boolean));
 
-            // Build a map of streaming messages by msg_id for content-length comparison.
-            // During streaming, the DB may have an older snapshot (due to 2000ms save debounce),
-            // so we keep whichever version has more content to avoid losing streamed data.
-            const streamingByMsgId = new Map<string, TMessage>();
-            for (const m of sameConversation) {
-              if (m.msg_id && m.type === 'text' && dbMsgIds.has(m.msg_id)) {
-                streamingByMsgId.set(m.msg_id, m);
-              }
-            }
-
-            // Replace DB messages with streaming versions when streaming has more content
-            const mergedMessages = messages.map((dbMsg) => {
-              if (!dbMsg.msg_id || dbMsg.type !== 'text') return dbMsg;
-              const streamMsg = streamingByMsgId.get(dbMsg.msg_id);
-              if (!streamMsg) return dbMsg;
-              const dbContent =
-                typeof dbMsg.content === 'object' && 'content' in dbMsg.content
-                  ? String((dbMsg.content as { content: unknown }).content)
-                  : '';
-              const streamContent =
-                typeof streamMsg.content === 'object' && 'content' in streamMsg.content
-                  ? String((streamMsg.content as { content: unknown }).content)
-                  : '';
-              return streamContent.length > dbContent.length ? streamMsg : dbMsg;
-            });
-
-            const streamingOnly = sameConversation.filter(
-              (m) => !dbIds.has(m.id) && !(m.msg_id && dbMsgIds.has(m.msg_id))
-            );
-            if (!streamingOnly.length && !streamingByMsgId.size) return messages;
-            return [...mergedMessages, ...streamingOnly];
-          });
-        }
-      })
-      .catch((error) => {
-        console.error('[useMessageLstCache] Failed to load messages from database:', error);
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId?: string }>).detail;
+      if (detail?.conversationId && detail.conversationId !== key) return;
+      void loadMessages().catch((error) => {
+        console.error('[useMessageLstCache] Failed to refresh requested messages:', error);
       });
-  }, [key]);
+    };
+
+    window.addEventListener(MESSAGE_LIST_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(MESSAGE_LIST_REFRESH_EVENT, refresh);
+  }, [key, loadMessages]);
 };
 
 export const beforeUpdateMessageList = (fn: (list: TMessage[]) => TMessage[]) => {

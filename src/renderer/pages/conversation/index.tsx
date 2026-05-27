@@ -2,21 +2,35 @@ import { ipcBridge } from '@/common';
 import { Spin } from '@arco-design/web-react';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import useSWR from 'swr';
 import ChatConversation from './components/ChatConversation';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useConversationTabs } from './hooks/ConversationTabsContext';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
+import { isElectronDesktop } from '@/renderer/utils/platform';
+
+const shouldUseMobileWebConversation = (): boolean => {
+  if (typeof window === 'undefined' || isElectronDesktop()) return false;
+  if (window.location.search.includes('desktop=1') || window.location.hash.includes('desktop=1')) return false;
+  return window.innerWidth < 768 || window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+};
 
 const ChatConversationIndex: React.FC = () => {
   const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { closePreview } = usePreviewContext();
   const { openTab } = useConversationTabs();
   const { syncTitleFromHistory } = useAutoTitle();
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const defaultConversationTitle = t('conversation.welcome.newConversation');
+
+  useEffect(() => {
+    if (!id || !shouldUseMobileWebConversation()) return;
+    void navigate(`/mobile/conversation/${id}`, { replace: true });
+  }, [id, location.search, navigate]);
 
   useEffect(() => {
     if (!id) return;

@@ -98,6 +98,7 @@ const AcpSendBox: React.FC<{
   workspacePath?: string;
   teamId?: string;
   agentSlotId?: string;
+  mobileMode?: boolean;
 }> = ({
   conversation_id,
   backend,
@@ -107,6 +108,7 @@ const AcpSendBox: React.FC<{
   workspacePath,
   teamId,
   agentSlotId,
+  mobileMode,
 }) => {
   const {
     running,
@@ -327,7 +329,9 @@ Please check your local CLI tool authentication status`,
   };
 
   return (
-    <div className='max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
+    <div
+      className={`max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px ${mobileMode ? 'mobile-sendbox-root' : ''}`}
+    >
       <CommandQueuePanel
         items={queuedCommands}
         paused={isQueuePaused}
@@ -358,7 +362,7 @@ Please check your local CLI tool authentication status`,
           defaultValue: `Send message to {{backend}}...`,
         })}
         onStop={handleStop}
-        className='z-10'
+        className={mobileMode ? 'z-10 mobile-sendbox' : 'z-10'}
         onFilesAdded={handleFilesAdded}
         hasPendingAttachments={uploadFile.length > 0 || atPath.length > 0}
         enableBtw={isSideQuestionSupported({ type: 'acp', backend })}
