@@ -301,8 +301,8 @@ const MobileSettingsRow: React.FC<{ label: string; children: React.ReactNode; st
   );
 };
 
-const MobileSettingValue: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  return <strong className='mobile-conversation__settings-value'>{children}</strong>;
+const MobileSettingValue: React.FC<{ children: React.ReactNode; wrap?: boolean }> = ({ children, wrap }) => {
+  return <strong className={classNames('mobile-conversation__settings-value', wrap && 'is-wrap')}>{children}</strong>;
 };
 
 const MobileOptionChip: React.FC<{
@@ -629,7 +629,7 @@ const MobileConversationSettings: React.FC<{
       </MobileSettingsRow>
 
       <MobileSettingsRow label='Workspace'>
-        <MobileSettingValue>{extra.workspace || 'Temporary'}</MobileSettingValue>
+        <MobileSettingValue wrap>{extra.workspace || 'Temporary'}</MobileSettingValue>
       </MobileSettingsRow>
 
       <MobileSettingsRow label='Theme'>
