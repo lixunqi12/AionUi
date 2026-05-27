@@ -1,8 +1,9 @@
-import React, { Suspense } from 'react';
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import React, { Suspense, useEffect, useState } from 'react';
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
+import { ipcBridge } from '@/common';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const MobileConversation = React.lazy(() => import('@renderer/pages/mobile-conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
@@ -55,6 +56,68 @@ const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }
   return children;
 };
 
+const isRemoteWebRuntime = (): boolean => {
+  return typeof window !== 'undefined' && !window.electronAPI;
+};
+
+const MobileEntryRoute: React.FC = () => {
+  const navigate = useNavigate();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const openLatestMobileConversation = async () => {
+      try {
+        const result = await ipcBridge.database.getUserConversations.invoke({ limit: 1 });
+        const latestId = result.items?.[0]?.id;
+        if (!cancelled && latestId) {
+          void navigate(`/mobile/conversation/${latestId}`, { replace: true });
+          return;
+        }
+      } catch (error) {
+        console.error('[MobileEntryRoute] Failed to load latest conversation:', error);
+      }
+
+      if (!cancelled) setReady(true);
+    };
+
+    void openLatestMobileConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (!ready) return <AppLoader />;
+  return withRouteFallback(MobileConversation);
+};
+
+const HomeRoute: React.FC = () => {
+  if (isRemoteWebRuntime()) {
+    return <Navigate to='/mobile' replace />;
+  }
+  return <Navigate to='/guid' replace />;
+};
+
+const GuidRoute: React.FC = () => {
+  if (isRemoteWebRuntime()) {
+    return <Navigate to='/mobile' replace />;
+  }
+  return withRouteFallback(Guid);
+};
+
+const ConversationRoute: React.FC = () => {
+  const { id } = useParams();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+
+  if (isRemoteWebRuntime() && searchParams.get('desktop') !== '1' && id) {
+    return <Navigate to={`/mobile/conversation/${id}`} replace />;
+  }
+
+  return withRouteFallback(Conversation);
+};
+
 const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
 
@@ -69,10 +132,18 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           path='/mobile/conversation/:id'
           element={<ProtectedRoute>{withRouteFallback(MobileConversation)}</ProtectedRoute>}
         />
+        <Route
+          path='/mobile'
+          element={
+            <ProtectedRoute>
+              <MobileEntryRoute />
+            </ProtectedRoute>
+          }
+        />
         <Route element={<ProtectedLayout layout={layout} />}>
-          <Route index element={<Navigate to='/guid' replace />} />
-          <Route path='/guid' element={withRouteFallback(Guid)} />
-          <Route path='/conversation/:id' element={withRouteFallback(Conversation)} />
+          <Route index element={<HomeRoute />} />
+          <Route path='/guid' element={<GuidRoute />} />
+          <Route path='/conversation/:id' element={<ConversationRoute />} />
           <Route
             path='/team/:id'
             element={TEAM_MODE_ENABLED ? withRouteFallback(TeamIndex) : <Navigate to='/guid' replace />}

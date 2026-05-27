@@ -114,6 +114,23 @@ describe('static-server', () => {
     expect(json.proxied).toBe(true);
   });
 
+  it('/qr-login reverse-proxies to backend (no SPA fallback)', async () => {
+    const backend = await startMockBackend((req, res) => {
+      if (req.url === '/qr-login?token=abc' && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end('<html>qr login backend</html>');
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    stopBackend = backend.close;
+    handle = await startStaticServer({ staticDir, backendPort: backend.port, port: 0 });
+
+    const r = await fetch(`${handle.localUrl}/qr-login?token=abc`);
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain('qr login backend');
+  });
+
   it('/api/auth/user reverse-proxies to backend (no local handler)', async () => {
     const backend = await startMockBackend((req, res) => {
       if (req.url === '/api/auth/user' && req.method === 'GET') {

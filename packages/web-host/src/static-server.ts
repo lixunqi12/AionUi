@@ -1,10 +1,10 @@
 /**
  * WebUI static server.
  *
- * Serves out/renderer/ as the SPA and reverse-proxies /api/*, /ws, /login and
- * /logout to aioncore. All auth goes to backend's aionui-auth crate;
- * /login and /logout are aionui-auth's top-level paths, the rest live under
- * /api/auth/*.
+ * Serves out/renderer/ as the SPA and reverse-proxies /api/*, /ws, /login,
+ * /logout, and /qr-login to aioncore. All auth goes to backend's aionui-auth
+ * crate; /login, /logout, and /qr-login are aionui-auth's top-level paths,
+ * the rest live under /api/auth/*.
  *
  * Design: Node native http + serve-handler. No Express. No business routes.
  */
@@ -32,14 +32,49 @@ export type StaticServerHandle = {
 
 const DEFAULT_PORT = 25808;
 
+function isIPv4Family(family: string | number): boolean {
+  return family === 'IPv4' || family === 4;
+}
+
+function getPrivateIPv4Score(name: string, address: string): number {
+  const lowerName = name.toLowerCase();
+  let score = 0;
+
+  if (/tailscale|zerotier|wireguard|hamachi|vpn/.test(lowerName)) score += 60;
+  if (/vethernet|virtual|vmware|virtualbox|hyper-v|wsl|docker|bluetooth/.test(lowerName)) score += 40;
+
+  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+  const [a, b] = parts;
+
+  if (a === 192 && b === 168) score += 0;
+  else if (a === 172 && b >= 16 && b <= 31) score += 5;
+  else if (a === 10) score += 10;
+  else if (a === 100 && b >= 64 && b <= 127) score += 70;
+  else score += 30;
+
+  return score;
+}
+
 function getLanIP(): string | null {
   const nets = networkInterfaces();
+  const candidates: Array<{ address: string; score: number; order: number }> = [];
+  let order = 0;
+
   for (const name of Object.keys(nets)) {
     for (const iface of nets[name] || []) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+      if (!isIPv4Family(iface.family) || iface.internal) continue;
+      if (iface.address.startsWith('169.254.')) continue;
+      candidates.push({
+        address: iface.address,
+        score: getPrivateIPv4Score(name, iface.address),
+        order,
+      });
+      order += 1;
     }
   }
-  return null;
+
+  candidates.sort((a, b) => a.score - b.score || a.order - b.order);
+  return candidates[0]?.address ?? null;
 }
 
 function forwardToBackend(req: IncomingMessage, res: ServerResponse, backendPort: number): void {
@@ -138,9 +173,16 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
       }
 
       // /api/* — reverse proxy to backend (includes /api/auth/*).
-      // /login and /logout are aionui-auth's top-level auth endpoints: proxy them too
+      // /login, /logout, and /qr-login are aionui-auth's top-level auth endpoints: proxy them too
       // so WebUI browser clients reach the backend without a path-rewrite.
-      if (req.url.startsWith('/api/') || req.url.startsWith('/api?') || req.url === '/login' || req.url === '/logout') {
+      if (
+        req.url.startsWith('/api/') ||
+        req.url.startsWith('/api?') ||
+        req.url === '/login' ||
+        req.url === '/logout' ||
+        req.url === '/qr-login' ||
+        req.url.startsWith('/qr-login?')
+      ) {
         forwardToBackend(req, res, opts.backendPort);
         return;
       }
@@ -150,7 +192,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
         public: opts.staticDir,
         rewrites: [{ source: '**', destination: '/index.html' }],
       });
-    } catch (err) {
+    } catch {
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'INTERNAL_ERROR' }));

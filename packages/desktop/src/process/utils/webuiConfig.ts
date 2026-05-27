@@ -186,17 +186,51 @@ export function setDesktopWebUIInitialPassword(password: string | undefined): vo
   currentInitialPassword = password;
 }
 
+const isIPv4Family = (family: string | number): boolean => {
+  return family === 'IPv4' || family === 4;
+};
+
+const getPrivateIPv4Score = (name: string, address: string): number => {
+  const lowerName = name.toLowerCase();
+  let score = 0;
+
+  if (/tailscale|zerotier|wireguard|hamachi|vpn/.test(lowerName)) score += 60;
+  if (/vethernet|virtual|vmware|virtualbox|hyper-v|wsl|docker|bluetooth/.test(lowerName)) score += 40;
+
+  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+  const [a, b] = parts;
+
+  if (a === 192 && b === 168) score += 0;
+  else if (a === 172 && b >= 16 && b <= 31) score += 5;
+  else if (a === 10) score += 10;
+  else if (a === 100 && b >= 64 && b <= 127) score += 70;
+  else score += 30;
+
+  return score;
+};
+
 const getLanIP = (): string | null => {
   const nets = networkInterfaces();
+  const candidates: Array<{ address: string; score: number; order: number }> = [];
+  let order = 0;
+
   for (const name of Object.keys(nets)) {
     const netInfo = nets[name];
     if (!netInfo) continue;
     for (const net of netInfo) {
-      const isIPv4 = net.family === 'IPv4' || (net.family as unknown) === 4;
-      if (isIPv4 && !net.internal) return net.address;
+      if (!isIPv4Family(net.family) || net.internal) continue;
+      if (net.address.startsWith('169.254.')) continue;
+      candidates.push({
+        address: net.address,
+        score: getPrivateIPv4Score(name, net.address),
+        order,
+      });
+      order += 1;
     }
   }
-  return null;
+
+  candidates.sort((a, b) => a.score - b.score || a.order - b.order);
+  return candidates[0]?.address ?? null;
 };
 
 const toDesktopHandle = (handle: WebHostHandle, allowRemote: boolean): DesktopWebUIHandle => ({
