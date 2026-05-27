@@ -782,7 +782,7 @@
 }
 
 .mobile-conversation__settings-row:not(.is-stacked) .mobile-conversation__settings-control {
-  align-items: flex-end;
+  align-items: stretch;
 }
 
 .mobile-conversation__settings-value {
@@ -794,6 +794,14 @@
   line-height: 20px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.mobile-conversation__settings-value.is-wrap {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .mobile-conversation__settings-note {
@@ -849,6 +857,7 @@
 }
 
 .mobile-conversation__theme-toggle {
+  align-self: flex-end;
   justify-self: end;
   min-width: 92px;
   height: 34px;
