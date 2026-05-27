@@ -1,6 +1,8 @@
 import { ipcBridge } from '@/common';
 import type { IMessageAcpPermission, IMessagePermission, TMessage } from '@/common/chat/chatLib';
 import type { IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
+import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
+import type { AcpModelInfo } from '@/common/types/platform/acpTypes';
 import type { TTeam } from '@/common/types/team/teamTypes';
 import { parseError, uuid } from '@/common/utils';
 import MarkdownView from '@/renderer/components/Markdown';
@@ -29,6 +31,7 @@ import { buildCliAgentParams } from '@/renderer/pages/conversation/utils/createC
 import { useTeamList } from '@/renderer/pages/team/hooks/useTeamList';
 import { emitter } from '@/renderer/utils/emitter';
 import { getAgentKey } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
+import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { getWorkspaceDisplayName } from '@/renderer/utils/workspace/workspace';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Message as ArcoMessage } from '@arco-design/web-react';
@@ -341,6 +344,68 @@ const getModelBase = (modelId?: string | null): string => {
   return parts.slice(0, -1).join('/');
 };
 
+const stripReasoningLabel = (label: string): string => {
+  return label.replace(/\s*\((?:none|minimal|low|medium|high|xhigh)\)\s*$/i, '');
+};
+
+const getPrimaryTeamConversationId = (group: MobileTeamGroup): string => {
+  const leaderSlotId = group.team?.leader_agent_id;
+  const leaderAgent = group.team?.agents.find((agent) => agent.slot_id === leaderSlotId || agent.role === 'leader');
+  return pickString(leaderAgent?.conversation_id, group.conversations[0]?.id, group.team?.agents[0]?.conversation_id);
+};
+
+const getCachedAcpModelInfo = (agent?: AgentMetadata): AcpModelInfo | null => {
+  if (!agent) return null;
+  const info = agent.handshake?.available_models as AcpModelInfo | undefined;
+  if (info && Array.isArray(info.available_models) && info.available_models.length > 0) {
+    return info;
+  }
+  const backend = agent.backend || agent.agent_type;
+  if (backend === 'codex' && DEFAULT_CODEX_MODELS.length > 0) {
+    return {
+      current_model_id: DEFAULT_CODEX_MODELS[0].id,
+      current_model_label: DEFAULT_CODEX_MODELS[0].label,
+      available_models: DEFAULT_CODEX_MODELS.map((model) => ({ id: model.id, label: model.label })),
+    };
+  }
+  return null;
+};
+
+const getBaseModelOptions = (modelInfo?: AcpModelInfo | null): Array<{ id: string; label: string }> => {
+  if (!modelInfo?.available_models?.length) return [];
+  const options = new Map<string, string>();
+  for (const model of modelInfo.available_models) {
+    const baseId = getModelBase(model.id);
+    if (!baseId || options.has(baseId)) continue;
+    options.set(baseId, stripReasoningLabel(model.label || baseId));
+  }
+  return [...options.entries()].map(([id, label]) => ({ id, label }));
+};
+
+const resolveModelIdForBase = (modelInfo: AcpModelInfo | null, baseId: string, preferredReasoning: string): string => {
+  if (!modelInfo?.available_models?.length || !baseId) return baseId;
+  const exact = modelInfo.available_models.find((model) => model.id === baseId);
+  if (exact) return exact.id;
+  if (preferredReasoning) {
+    const preferred = modelInfo.available_models.find(
+      (model) => getModelBase(model.id) === baseId && getReasoningValue(model.id) === preferredReasoning
+    );
+    if (preferred) return preferred.id;
+  }
+  return modelInfo.available_models.find((model) => getModelBase(model.id) === baseId)?.id || baseId;
+};
+
+const getReasoningChoicesForBase = (modelInfo: AcpModelInfo | null, baseId: string): string[] => {
+  if (!modelInfo?.available_models?.length || !baseId) return [];
+  const options = new Set(
+    modelInfo.available_models
+      .filter((model) => getModelBase(model.id) === baseId)
+      .map((model) => getReasoningValue(model.id))
+      .filter(Boolean)
+  );
+  return REASONING_ORDER.filter((reasoning) => options.has(reasoning));
+};
+
 const MobileHistoryConversationButton: React.FC<{
   item: TChatConversation;
   activeId?: string;
@@ -405,12 +470,12 @@ const MobileHistorySection: React.FC<{
 
 const MobileHistoryTeamButton: React.FC<{
   group: MobileTeamGroup;
-  onOpenTeam: (teamId: string) => void;
+  onOpenTeam: (group: MobileTeamGroup) => void;
 }> = ({ group, onOpenTeam }) => {
   const latest = group.conversations[0];
   const agentCount = group.team?.agents?.length ?? group.conversations.length;
   return (
-    <button className='mobile-conversation__history-team' type='button' onClick={() => onOpenTeam(group.teamId)}>
+    <button className='mobile-conversation__history-team' type='button' onClick={() => onOpenTeam(group)}>
       <span className='mobile-conversation__history-title'>{group.name}</span>
       <span className='mobile-conversation__history-meta'>
         {agentCount} agents{latest ? ` - ${formatHistoryTime(latest)}` : ''}
@@ -644,8 +709,11 @@ const MobileNewChatSheet: React.FC<{
   onCreated: (conversationId: string) => void;
 }> = ({ initialAgentKey, onCreated }) => {
   const { agents } = useAgents();
+  const { providers, getAvailableModels } = useModelProviderList();
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>(initialAgentKey || '');
   const [selectedMode, setSelectedMode] = useState<string>('');
+  const [selectedAcpModelId, setSelectedAcpModelId] = useState<string>('');
+  const [selectedAionrsModelKey, setSelectedAionrsModelKey] = useState<string>('');
   const [draft, setDraft] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
@@ -665,7 +733,39 @@ const MobileNewChatSheet: React.FC<{
   }, [availableAgents, selectedAgentKey]);
 
   const selectedBackend = selectedAgent?.backend || selectedAgent?.agent_type;
+  const isAionrsAgent = selectedBackend === 'aionrs' || selectedAgent?.agent_type === 'aionrs';
   const modes = useAgentModesForBackend(selectedBackend);
+  const acpModelInfo = useMemo(
+    () => (isAionrsAgent ? null : getCachedAcpModelInfo(selectedAgent)),
+    [isAionrsAgent, selectedAgent]
+  );
+  const acpModelOptions = useMemo(() => getBaseModelOptions(acpModelInfo), [acpModelInfo]);
+  const effectiveAcpModelId = selectedAcpModelId || acpModelInfo?.current_model_id || '';
+  const selectedAcpModelBase = getModelBase(effectiveAcpModelId);
+  const selectedReasoning = getReasoningValue(effectiveAcpModelId);
+  const reasoningChoices = useMemo(
+    () => getReasoningChoicesForBase(acpModelInfo, selectedAcpModelBase),
+    [acpModelInfo, selectedAcpModelBase]
+  );
+  const aionrsModelOptions = useMemo(() => {
+    return providers
+      .filter(
+        (provider) =>
+          provider.enabled !== false && !provider.platform?.toLowerCase().includes('gemini-with-google-auth')
+      )
+      .flatMap((provider) =>
+        getAvailableModels(provider).map((modelName) => ({
+          key: `${provider.id}:${modelName}`,
+          provider,
+          modelName,
+        }))
+      );
+  }, [getAvailableModels, providers]);
+  const selectedAionrsModel = useMemo(() => {
+    if (!aionrsModelOptions.length) return null;
+    const option = aionrsModelOptions.find((item) => item.key === selectedAionrsModelKey) || aionrsModelOptions[0];
+    return { ...option.provider, use_model: option.modelName } as TProviderWithModel;
+  }, [aionrsModelOptions, selectedAionrsModelKey]);
 
   useEffect(() => {
     if (!selectedAgent || selectedAgentKey) return;
@@ -684,6 +784,28 @@ const MobileNewChatSheet: React.FC<{
     setSelectedMode((prev) => (modes.some((mode) => mode.value === prev) ? prev : modes[0].value));
   }, [modes]);
 
+  useEffect(() => {
+    setSelectedAcpModelId(acpModelInfo?.current_model_id || '');
+  }, [acpModelInfo?.current_model_id, selectedAgentKey]);
+
+  useEffect(() => {
+    if (!aionrsModelOptions.length) {
+      setSelectedAionrsModelKey('');
+      return;
+    }
+    setSelectedAionrsModelKey((prev) =>
+      prev && aionrsModelOptions.some((option) => option.key === prev) ? prev : aionrsModelOptions[0].key
+    );
+  }, [aionrsModelOptions]);
+
+  const selectAcpModelBase = (baseId: string) => {
+    setSelectedAcpModelId(resolveModelIdForBase(acpModelInfo, baseId, selectedReasoning));
+  };
+
+  const selectReasoning = (reasoning: string) => {
+    setSelectedAcpModelId(resolveModelIdForBase(acpModelInfo, selectedAcpModelBase, reasoning));
+  };
+
   const createMobileConversation = async () => {
     if (!selectedAgent || isCreating) return;
     const input = draft.trim();
@@ -694,12 +816,14 @@ const MobileNewChatSheet: React.FC<{
       const title = input.split(/\r?\n/)[0]?.trim() || `${selectedAgent.name || selectedBackend || 'Agent'} chat`;
       const conversation = await ipcBridge.conversation.create.invoke({
         ...params,
+        model: isAionrsAgent && selectedAionrsModel ? selectedAionrsModel : params.model,
         name: title,
         extra: {
           ...params.extra,
           workspace: MOBILE_DEFAULT_WORKSPACE,
           custom_workspace: true,
           session_mode: selectedMode || params.extra?.session_mode,
+          current_model_id: selectedAcpModelId || params.extra?.current_model_id,
         },
       });
 
@@ -754,6 +878,67 @@ const MobileNewChatSheet: React.FC<{
           <div className='mobile-conversation__settings-note'>No available agents</div>
         )}
       </div>
+
+      {isAionrsAgent ? (
+        aionrsModelOptions.length > 0 && (
+          <div className='mobile-new-chat__group'>
+            <div className='mobile-new-chat__label'>Model</div>
+            <MobileOptionList>
+              {aionrsModelOptions.slice(0, MODEL_OPTION_LIMIT).map((option) => (
+                <MobileOptionChip
+                  key={option.key}
+                  label={option.modelName}
+                  active={
+                    selectedAionrsModel?.id === option.provider.id &&
+                    selectedAionrsModel?.use_model === option.modelName
+                  }
+                  onClick={() => setSelectedAionrsModelKey(option.key)}
+                />
+              ))}
+            </MobileOptionList>
+          </div>
+        )
+      ) : (
+        <>
+          {acpModelOptions.length > 0 && (
+            <div className='mobile-new-chat__group'>
+              <div className='mobile-new-chat__label'>Model</div>
+              <MobileOptionList>
+                {acpModelOptions.slice(0, MODEL_OPTION_LIMIT).map((model) => (
+                  <MobileOptionChip
+                    key={model.id}
+                    label={model.label}
+                    active={selectedAcpModelBase === model.id}
+                    onClick={() => selectAcpModelBase(model.id)}
+                  />
+                ))}
+              </MobileOptionList>
+            </div>
+          )}
+
+          <div className='mobile-new-chat__group'>
+            <div className='mobile-new-chat__label'>Reasoning</div>
+            {reasoningChoices.length > 0 ? (
+              <MobileOptionList>
+                {reasoningChoices.map((reasoning) => (
+                  <MobileOptionChip
+                    key={reasoning}
+                    label={reasoning}
+                    active={selectedReasoning === reasoning}
+                    onClick={() => selectReasoning(reasoning)}
+                  />
+                ))}
+              </MobileOptionList>
+            ) : (
+              <div className='mobile-conversation__settings-note'>
+                {effectiveAcpModelId
+                  ? 'This model has no separate reasoning choices'
+                  : 'No model list from this agent yet'}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {modes.length > 0 && (
         <div className='mobile-new-chat__group'>
@@ -1368,9 +1553,11 @@ const MobileConversationPage: React.FC = () => {
     void navigate(`/mobile/conversation/${conversationId}`);
   };
 
-  const goToTeam = (teamId: string) => {
+  const goToTeam = (group: MobileTeamGroup) => {
+    const conversationId = getPrimaryTeamConversationId(group);
+    if (!conversationId) return;
     setActiveSheet(null);
-    void navigate(`/team/${teamId}`);
+    void navigate(`/mobile/conversation/${conversationId}`);
   };
 
   const createConversation = () => {

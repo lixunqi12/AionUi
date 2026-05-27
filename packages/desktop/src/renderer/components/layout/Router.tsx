@@ -4,6 +4,7 @@ import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 import { ipcBridge } from '@/common';
+import type { TTeam } from '@/common/types/team/teamTypes';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const MobileConversation = React.lazy(() => import('@renderer/pages/mobile-conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
@@ -118,6 +119,50 @@ const ConversationRoute: React.FC = () => {
   return withRouteFallback(Conversation);
 };
 
+const getTeamPrimaryConversationId = (team?: TTeam | null): string => {
+  if (!team) return '';
+  const leaderAgent = team.agents.find((agent) => agent.slot_id === team.leader_agent_id || agent.role === 'leader');
+  return leaderAgent?.conversation_id || team.agents[0]?.conversation_id || '';
+};
+
+const TeamRoute: React.FC = () => {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isRemoteWebRuntime() || !id) return;
+    let cancelled = false;
+
+    const openMobileTeamConversation = async () => {
+      try {
+        const team = await ipcBridge.team.get.invoke({ id });
+        const conversationId = getTeamPrimaryConversationId(team);
+        if (!cancelled) {
+          void navigate(conversationId ? `/mobile/conversation/${conversationId}` : '/mobile', { replace: true });
+        }
+      } catch (error) {
+        console.error('[TeamRoute] Failed to resolve mobile team conversation:', error);
+        if (!cancelled) void navigate('/mobile', { replace: true });
+      }
+    };
+
+    void openMobileTeamConversation();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, navigate]);
+
+  if (!TEAM_MODE_ENABLED) {
+    return <Navigate to={isRemoteWebRuntime() ? '/mobile' : '/guid'} replace />;
+  }
+
+  if (isRemoteWebRuntime()) {
+    return <AppLoader />;
+  }
+
+  return withRouteFallback(TeamIndex);
+};
+
 const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
 
@@ -144,10 +189,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route index element={<HomeRoute />} />
           <Route path='/guid' element={<GuidRoute />} />
           <Route path='/conversation/:id' element={<ConversationRoute />} />
-          <Route
-            path='/team/:id'
-            element={TEAM_MODE_ENABLED ? withRouteFallback(TeamIndex) : <Navigate to='/guid' replace />}
-          />
+          <Route path='/team/:id' element={<TeamRoute />} />
           <Route path='/settings/model' element={withRouteFallback(ModeSettings)} />
           <Route path='/settings/assistants' element={withRouteFallback(AssistantSettings)} />
           <Route path='/settings/agent' element={withRouteFallback(AgentSettings)} />
