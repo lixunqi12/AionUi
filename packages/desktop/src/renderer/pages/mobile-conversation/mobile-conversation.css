@@ -520,6 +520,7 @@
   border-radius: 24px 24px 0 0;
   background: var(--bg-2);
   box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
   transform: translateY(105%);
   transition: transform 0.22s ease;
   box-sizing: border-box;
@@ -545,6 +546,7 @@
 }
 
 .mobile-conversation__wide-action {
+  flex-shrink: 0;
   min-height: 46px;
   width: 100%;
   border: 0;
@@ -560,16 +562,95 @@
   touch-action: manipulation;
 }
 
+.mobile-conversation__wide-action.is-primary {
+  color: #fff;
+  background: rgb(var(--primary-6));
+}
+
+.mobile-conversation__wide-action:disabled {
+  opacity: 0.55;
+}
+
 .mobile-conversation__history-list {
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
 }
 
+.mobile-conversation__history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-conversation__history-section-title {
+  width: 100%;
+  height: 28px;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mobile-conversation__history-section-right {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mobile-conversation__history-section-icon {
+  color: var(--text-secondary);
+  transition: transform 0.16s ease;
+}
+
+.mobile-conversation__history-section-icon.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.mobile-conversation__history-section-title strong,
+.mobile-conversation__history-workspace-title strong {
+  flex-shrink: 0;
+  min-width: 24px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--fill-2);
+}
+
+.mobile-conversation__history-team-group,
+.mobile-conversation__history-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-conversation__history-workspace {
+  padding: 6px 0;
+}
+
+.mobile-conversation__history-team,
 .mobile-conversation__history-item {
   width: 100%;
   min-height: 58px;
@@ -586,8 +667,43 @@
   text-align: left;
 }
 
+.mobile-conversation__history-team {
+  background: color-mix(in srgb, rgb(var(--primary-6)) 12%, var(--fill-2));
+}
+
 .mobile-conversation__history-item.is-active {
   background: var(--fill-2);
+}
+
+.mobile-conversation__history-team-group .mobile-conversation__history-item,
+.mobile-conversation__history-workspace .mobile-conversation__history-item {
+  min-height: 48px;
+  margin-left: 10px;
+  width: calc(100% - 10px);
+  border-left: 2px solid color-mix(in srgb, var(--border-base) 68%, transparent);
+  border-radius: 10px;
+  padding-left: 10px;
+}
+
+.mobile-conversation__history-workspace-title {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: var(--text-primary);
+  background: var(--fill-1);
+}
+
+.mobile-conversation__history-workspace-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .mobile-conversation__history-title {
@@ -608,35 +724,128 @@
   color: var(--text-secondary);
 }
 
-.mobile-conversation__settings-list {
+.mobile-conversation__history-empty {
+  min-height: 42px;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow: hidden;
-  border-radius: 14px;
-  background: var(--fill-1);
-}
-
-.mobile-conversation__settings-row {
-  min-height: 48px;
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  font-size: 14px;
-}
-
-.mobile-conversation__settings-row span {
+  padding: 0 12px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
-.mobile-conversation__settings-row strong {
+.mobile-conversation__settings-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 2px 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-conversation__settings-row {
+  flex-shrink: 0;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 11px 12px;
+  font-size: 14px;
+  background: var(--fill-1);
+  box-sizing: border-box;
+}
+
+.mobile-conversation__settings-row.is-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+
+.mobile-conversation__settings-row > span {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.mobile-conversation__settings-control {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+
+.mobile-conversation__settings-row:not(.is-stacked) .mobile-conversation__settings-control {
+  align-items: flex-end;
+}
+
+.mobile-conversation__settings-value {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 20px;
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-conversation__settings-note {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text-secondary);
+}
+
+.mobile-conversation__option-list {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 7px;
+}
+
+.mobile-conversation__settings-row.is-stacked .mobile-conversation__option-list {
+  max-height: 132px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-conversation__option-chip {
+  flex: 0 1 auto;
+  max-width: min(100%, 176px);
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--border-base) 70%, transparent);
+  border-radius: 999px;
+  padding: 6px 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 650;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  touch-action: manipulation;
+  box-sizing: border-box;
+}
+
+.mobile-conversation__option-chip.is-active {
+  border-color: color-mix(in srgb, rgb(var(--primary-6)) 60%, var(--border-base));
+  color: rgb(var(--primary-6));
+  background: color-mix(in srgb, rgb(var(--primary-6)) 12%, var(--bg-1));
+}
+
+.mobile-conversation__option-chip:disabled {
+  opacity: 0.55;
 }
 
 .mobile-conversation__theme-toggle {
@@ -652,6 +861,72 @@
   color: var(--text-primary);
   background: var(--bg-1);
   font-weight: 600;
+}
+
+.mobile-new-chat {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-new-chat__workspace {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: var(--fill-1);
+}
+
+.mobile-new-chat__workspace span,
+.mobile-new-chat__label {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.mobile-new-chat__workspace strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-primary);
+}
+
+.mobile-new-chat__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: var(--fill-1);
+}
+
+.mobile-new-chat__input {
+  width: 100%;
+  min-height: 118px;
+  max-height: 220px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--border-base) 72%, transparent);
+  border-radius: 12px;
+  outline: 0;
+  padding: 10px 11px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+  color: var(--text-primary);
+  background: var(--bg-1);
+  box-sizing: border-box;
+}
+
+.mobile-new-chat__input::placeholder {
+  color: var(--text-secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {
