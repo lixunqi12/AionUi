@@ -139,10 +139,13 @@ const isWorkspaceConversation = (conversation: TChatConversation): boolean => {
   return Boolean(extra.custom_workspace && extra.workspace);
 };
 
+const sortConversationsByActivity = (items: TChatConversation[]): TChatConversation[] => {
+  // oxlint-disable-next-line unicorn/no-array-sort -- older phone browsers can lack toSorted().
+  return [...items].sort((a, b) => getConversationActivityTime(b) - getConversationActivityTime(a));
+};
+
 const buildMobileHistoryGroups = (items: TChatConversation[], teams: TTeam[]): MobileHistoryGroups => {
-  const visibleItems = items
-    .filter((item) => getExtra(item).is_health_check !== true)
-    .toSorted((a, b) => getConversationActivityTime(b) - getConversationActivityTime(a));
+  const visibleItems = sortConversationsByActivity(items.filter((item) => getExtra(item).is_health_check !== true));
 
   const teamsById = new Map(teams.map((team) => [team.id, team]));
   const teamConversationMap = new Map<string, TChatConversation[]>();
@@ -177,7 +180,8 @@ const buildMobileHistoryGroups = (items: TChatConversation[], teams: TTeam[]): M
   }
 
   const sortedTeams: MobileTeamGroup[] = [...teams]
-    .toSorted((a, b) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0))
+    // oxlint-disable-next-line unicorn/no-array-sort -- older phone browsers can lack toSorted().
+    .sort((a, b) => (b.updated_at || b.created_at || 0) - (a.updated_at || a.created_at || 0))
     .map((team) => ({
       teamId: team.id,
       name: team.name,
@@ -199,11 +203,10 @@ const buildMobileHistoryGroups = (items: TChatConversation[], teams: TTeam[]): M
     .map(([workspace, conversations]) => ({
       workspace,
       displayName: getWorkspaceDisplayName(workspace, false),
-      conversations: conversations.toSorted((a, b) => getConversationActivityTime(b) - getConversationActivityTime(a)),
+      conversations: sortConversationsByActivity(conversations),
     }))
-    .toSorted(
-      (a, b) => getConversationActivityTime(b.conversations[0]) - getConversationActivityTime(a.conversations[0])
-    );
+    // oxlint-disable-next-line unicorn/no-array-sort -- older phone browsers can lack toSorted().
+    .sort((a, b) => getConversationActivityTime(b.conversations[0]) - getConversationActivityTime(a.conversations[0]));
 
   return {
     pinned,
@@ -327,7 +330,8 @@ const MobileOptionList: React.FC<{ children: React.ReactNode }> = ({ children })
 
 const getReasoningValue = (modelId?: string | null): string => {
   if (!modelId || !modelId.includes('/')) return '';
-  return modelId.split('/').at(-1) || '';
+  const parts = modelId.split('/');
+  return parts[parts.length - 1] || '';
 };
 
 const getModelBase = (modelId?: string | null): string => {
@@ -808,7 +812,8 @@ const getToolSummary = (message: TMessage): { title: string; detail: string; sta
 
   if (message.type === 'tool_group') {
     const calls = Array.isArray(message.content) ? message.content : [];
-    const active = calls.find((call) => call.status === 'Executing' || call.status === 'Confirming') || calls.at(-1);
+    const active =
+      calls.find((call) => call.status === 'Executing' || call.status === 'Confirming') || calls[calls.length - 1];
     return {
       title: active?.description || active?.name || `${calls.length} tool calls`,
       detail: calls
@@ -1313,7 +1318,7 @@ const MobileConversationPage: React.FC = () => {
 
   const conversations = useMemo(() => {
     const items = conversationsResult?.items ?? [];
-    return items.toSorted((a, b) => getConversationActivityTime(b) - getConversationActivityTime(a));
+    return sortConversationsByActivity(items);
   }, [conversationsResult]);
 
   const historyGroups = useMemo(() => buildMobileHistoryGroups(conversations, teams), [conversations, teams]);

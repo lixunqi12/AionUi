@@ -1,8 +1,10 @@
 // Bumped from v1: the v1 networkFirst fallback returned OFFLINE_PAGE_URL
 // (index.html) for failed script requests, causing "module script MIME text/html"
-// errors when the server was down or served a different asset hash. The v2
-// activate handler deletes v1, flushing any poisoned cached entries.
-const CACHE_NAME = 'aionui-webui-v2';
+// errors when the server was down or served a different asset hash. Later
+// activate handlers delete older caches, flushing any poisoned cached entries.
+// Bumped to v3 after mobile WebUI layout updates so phones drop old app-shell
+// entries that can point at removed hashed JS bundles.
+const CACHE_NAME = 'aionui-webui-v3';
 const NON_CACHEABLE_PATHS = new Set(['/qr-login']);
 const OFFLINE_PAGE_URL = new URL('./index.html', self.location.href).toString();
 const PRECACHE_URLS = [
