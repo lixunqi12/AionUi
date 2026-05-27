@@ -4,6 +4,7 @@ import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
+const MobileConversation = React.lazy(() => import('@renderer/pages/mobile-conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
 const AgentSettings = React.lazy(() => import('@renderer/pages/settings/AgentSettings'));
 const AssistantSettings = React.lazy(() => import('@renderer/pages/settings/AssistantSettings'));
@@ -40,6 +41,20 @@ const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layout }) =
   return React.cloneElement(layout);
 };
 
+const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { status } = useAuth();
+
+  if (status === 'checking') {
+    return <AppLoader />;
+  }
+
+  if (status !== 'authenticated') {
+    return <Navigate to='/login' replace />;
+  }
+
+  return children;
+};
+
 const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
 
@@ -49,6 +64,10 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
         <Route
           path='/login'
           element={status === 'authenticated' ? <Navigate to='/guid' replace /> : withRouteFallback(LoginPage)}
+        />
+        <Route
+          path='/mobile/conversation/:id'
+          element={<ProtectedRoute>{withRouteFallback(MobileConversation)}</ProtectedRoute>}
         />
         <Route element={<ProtectedLayout layout={layout} />}>
           <Route index element={<Navigate to='/guid' replace />} />
