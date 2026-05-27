@@ -52,7 +52,7 @@ export default function ConnectScreen() {
     try {
       const { host, port, qrToken } = parsed;
       const response = await axios.post(`http://${host}:${port}/api/auth/qr-login`, {
-        qrToken,
+        qr_token: qrToken,
       });
       const jwt: string = response.data.token;
 

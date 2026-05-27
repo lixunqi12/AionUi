@@ -1,10 +1,10 @@
 /**
  * WebUI static server.
  *
- * Serves out/renderer/ as the SPA and reverse-proxies /api/*, /ws, /login,
- * /logout, and /qr-login to aioncore. All auth goes to backend's aionui-auth
- * crate; /login, /logout, and /qr-login are aionui-auth's top-level paths,
- * the rest live under /api/auth/*.
+ * Serves out/renderer/ as the SPA, serves the browser QR login page, and
+ * reverse-proxies /api/*, /ws, /login, and /logout to aioncore. All auth goes
+ * to backend's aionui-auth crate; /login and /logout are aionui-auth's
+ * top-level paths, the rest live under /api/auth/*.
  *
  * Design: Node native http + serve-handler. No Express. No business routes.
  */
@@ -100,6 +100,70 @@ function forwardToBackend(req: IncomingMessage, res: ServerResponse, backendPort
   req.pipe(proxy);
 }
 
+const QR_LOGIN_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Login - AionUI</title>
+<style>
+  body { font-family: system-ui, sans-serif; display: flex; justify-content: center;
+         align-items: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+  .card { background: white; padding: 2rem; border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; max-width: 400px; }
+  .status { margin-top: 1rem; color: #666; }
+  .error { color: #d32f2f; }
+  .success { color: #388e3c; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>AionUI</h1>
+  <p id="status" class="status">Processing login...</p>
+</div>
+<script>
+(function() {
+  var el = document.getElementById('status');
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get('token');
+  if (!token) {
+    el.textContent = 'Error: No token provided';
+    el.className = 'status error';
+    return;
+  }
+  fetch('/api/auth/qr-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qr_token: token })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      el.textContent = 'Login successful! Redirecting...';
+      el.className = 'status success';
+      setTimeout(function() { window.location.replace('/#/mobile'); }, 800);
+    } else {
+      el.textContent = 'Login failed: ' + (data.error || 'Unknown error');
+      el.className = 'status error';
+    }
+  })
+  .catch(function(err) {
+    el.textContent = 'Error: ' + err.message;
+    el.className = 'status error';
+  });
+})();
+</script>
+</body>
+</html>`;
+
+function serveQrLoginPage(res: ServerResponse): void {
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  res.end(QR_LOGIN_HTML);
+}
+
 // Max bytes we peek before forcing a routing decision. An HTTP request-line
 // on its own is typically < 100 bytes; a full header block is < 2 KB. If we
 // haven't seen a newline after 4 KB the client is sending something weird —
@@ -173,16 +237,14 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
       }
 
       // /api/* — reverse proxy to backend (includes /api/auth/*).
-      // /login, /logout, and /qr-login are aionui-auth's top-level auth endpoints: proxy them too
+      // /login and /logout are aionui-auth's top-level auth endpoints: proxy them too
       // so WebUI browser clients reach the backend without a path-rewrite.
-      if (
-        req.url.startsWith('/api/') ||
-        req.url.startsWith('/api?') ||
-        req.url === '/login' ||
-        req.url === '/logout' ||
-        req.url === '/qr-login' ||
-        req.url.startsWith('/qr-login?')
-      ) {
+      if (req.method === 'GET' && (req.url === '/qr-login' || req.url.startsWith('/qr-login?'))) {
+        serveQrLoginPage(res);
+        return;
+      }
+
+      if (req.url.startsWith('/api/') || req.url.startsWith('/api?') || req.url === '/login' || req.url === '/logout') {
         forwardToBackend(req, res, opts.backendPort);
         return;
       }
