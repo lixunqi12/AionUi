@@ -64,6 +64,13 @@ const QRCodeSVGLazy = React.lazy(async () => {
 
 const DESKTOP_WEBUI_ENABLED_KEY = 'webui.desktop.enabled';
 const DESKTOP_WEBUI_ALLOW_REMOTE_KEY = 'webui.desktop.allowRemote';
+const QR_CODE_SIZE = 224;
+const QR_CODE_MARGIN_MODULES = 4;
+
+const formatExpiresAt = (timestamp: number) => {
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+};
 
 /**
  * WebUI 设置内容组件
@@ -532,12 +539,6 @@ const WebuiModalContent: React.FC = () => {
     }
   }, [status?.allowRemote, status?.running]);
 
-  // 格式化过期时间 / Format expiration time
-  const formatExpiresAt = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  };
-
   // 获取实际密码 / Get actual password
   const actualPassword = status?.initialPassword || cachedPassword;
   // 获取显示的密码 / Get display password
@@ -736,25 +737,33 @@ const WebuiModalContent: React.FC = () => {
 
               <div className='flex flex-col items-center gap-12px'>
                 {/* 二维码显示区域 / QR Code display area */}
-                <div className='p-12px bg-fill-1 border border-line rd-10px'>
+                <div className='p-14px bg-fill-1 border border-line rd-10px'>
                   {qrLoading ? (
-                    <div className='w-140px h-140px flex items-center justify-center'>
+                    <div className='w-224px h-224px flex items-center justify-center'>
                       <span className='text-14px text-t-tertiary'>{t('common.loading')}</span>
                     </div>
                   ) : qrUrl ? (
-                    <div className='p-8px bg-white rd-8px'>
+                    <div className='p-10px bg-white rd-8px shadow-[0_1px_8px_rgba(15,23,42,0.10)]'>
                       <Suspense
                         fallback={
-                          <div className='w-140px h-140px flex items-center justify-center'>
+                          <div className='w-224px h-224px flex items-center justify-center'>
                             <span className='text-14px text-t-tertiary'>{t('common.loading')}</span>
                           </div>
                         }
                       >
-                        <QRCodeSVGLazy value={qrUrl} size={140} level='M' />
+                        <QRCodeSVGLazy
+                          value={qrUrl}
+                          size={QR_CODE_SIZE}
+                          level='L'
+                          marginSize={QR_CODE_MARGIN_MODULES}
+                          boostLevel={false}
+                          bgColor='#FFFFFF'
+                          fgColor='#000000'
+                        />
                       </Suspense>
                     </div>
                   ) : (
-                    <div className='w-140px h-140px flex items-center justify-center'>
+                    <div className='w-224px h-224px flex items-center justify-center'>
                       <span className='text-14px text-t-tertiary'>{t('settings.webui.qrGenerateFailed')}</span>
                     </div>
                   )}
