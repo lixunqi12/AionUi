@@ -190,11 +190,18 @@ const isIPv4Family = (family: string | number): boolean => {
   return family === 'IPv4' || family === 4;
 };
 
+const isTailscaleIPv4 = (name: string, address: string): boolean => {
+  const lowerName = name.toLowerCase();
+  const [a, b] = address.split('.').map((part) => Number.parseInt(part, 10));
+  return /tailscale/.test(lowerName) || (a === 100 && b >= 64 && b <= 127);
+};
+
 const getPrivateIPv4Score = (name: string, address: string): number => {
   const lowerName = name.toLowerCase();
-  let score = 0;
+  if (isTailscaleIPv4(name, address)) return -100;
 
-  if (/tailscale|zerotier|wireguard|hamachi|vpn/.test(lowerName)) score += 60;
+  let score = 0;
+  if (/zerotier|wireguard|hamachi|vpn/.test(lowerName)) score += 60;
   if (/vethernet|virtual|vmware|virtualbox|hyper-v|wsl|docker|bluetooth/.test(lowerName)) score += 40;
 
   const parts = address.split('.').map((part) => Number.parseInt(part, 10));
@@ -203,7 +210,6 @@ const getPrivateIPv4Score = (name: string, address: string): number => {
   if (a === 192 && b === 168) score += 0;
   else if (a === 172 && b >= 16 && b <= 31) score += 5;
   else if (a === 10) score += 10;
-  else if (a === 100 && b >= 64 && b <= 127) score += 70;
   else score += 30;
 
   return score;
