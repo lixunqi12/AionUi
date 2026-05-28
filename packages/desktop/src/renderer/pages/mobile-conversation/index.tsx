@@ -44,7 +44,7 @@ import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import useSWR, { useSWRConfig } from 'swr';
-import { isLegacyMobileWorkspace, resolveMobileWorkspace } from './mobileWorkspace';
+import { isGeneratedTemporaryWorkspace, isLegacyMobileWorkspace, resolveMobileWorkspace } from './mobileWorkspace';
 import './mobile-conversation.css';
 
 const MOBILE_REFRESH_INTERVAL_MS = 1800;
@@ -1984,7 +1984,9 @@ const MobileConversationPage: React.FC = () => {
   const conversationExtra = conversation ? getExtra(conversation) : undefined;
   const conversationWorkspace = conversationExtra?.workspace;
   const defaultNewChatWorkspace =
-    conversationExtra?.is_temporary_workspace || isLegacyMobileWorkspace(conversationWorkspace)
+    conversationExtra?.is_temporary_workspace ||
+    isGeneratedTemporaryWorkspace(conversationWorkspace) ||
+    isLegacyMobileWorkspace(conversationWorkspace)
       ? undefined
       : conversationWorkspace;
   const activeConversation = useMemo(() => {
