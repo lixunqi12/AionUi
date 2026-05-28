@@ -48,7 +48,6 @@ import './mobile-conversation.css';
 const MOBILE_REFRESH_INTERVAL_MS = 1800;
 const MOBILE_MESSAGE_PAGE_SIZE = 320;
 const HISTORY_PAGE_SIZE = 120;
-const MOBILE_DEFAULT_WORKSPACE = 'F:\\AI_tool\\AionUi-mobile-workspace';
 const MODEL_OPTION_LIMIT = 16;
 const REASONING_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
 
@@ -112,6 +111,10 @@ const pickString = (...values: unknown[]): string => {
     if (typeof value === 'string' && value.trim()) return value;
   }
   return '';
+};
+
+const resolveMobileWorkspace = (preferredWorkspace?: string, systemWorkDir?: string): string => {
+  return pickString(preferredWorkspace, systemWorkDir);
 };
 
 const getConversationActivityTime = (conversation: TChatConversation): number => {
@@ -757,10 +760,12 @@ const MobileConversationSettings: React.FC<{
 
 const MobileNewChatSheet: React.FC<{
   initialAgentKey?: string;
+  defaultWorkspace?: string;
   onCreated: (conversationId: string) => void;
-}> = ({ initialAgentKey, onCreated }) => {
+}> = ({ initialAgentKey, defaultWorkspace, onCreated }) => {
   const { agents } = useAgents();
   const { providers, getAvailableModels } = useModelProviderList();
+  const { data: systemInfo } = useSWR('mobile-system-info', () => ipcBridge.application.systemInfo.invoke());
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>(initialAgentKey || '');
   const [selectedMode, setSelectedMode] = useState<string>('');
   const [selectedAcpModelId, setSelectedAcpModelId] = useState<string>('');
@@ -784,6 +789,10 @@ const MobileNewChatSheet: React.FC<{
   }, [availableAgents, selectedAgentKey]);
 
   const selectedBackend = selectedAgent?.backend || selectedAgent?.agent_type;
+  const mobileWorkspace = useMemo(
+    () => resolveMobileWorkspace(defaultWorkspace, systemInfo?.workDir),
+    [defaultWorkspace, systemInfo?.workDir]
+  );
   const isAionrsAgent = selectedBackend === 'aionrs' || selectedAgent?.agent_type === 'aionrs';
   const modes = useAgentModesForBackend(selectedBackend);
   const acpModelInfo = useMemo(
@@ -832,8 +841,8 @@ const MobileNewChatSheet: React.FC<{
       setSelectedMode('');
       return;
     }
-    setSelectedMode((prev) => (modes.some((mode) => mode.value === prev) ? prev : modes[0].value));
-  }, [modes]);
+    setSelectedMode((prev) => (prev && modes.some((mode) => mode.value === prev) ? prev : ''));
+  }, [modes, selectedAgentKey]);
 
   useEffect(() => {
     setSelectedAcpModelId(acpModelInfo?.current_model_id || '');
@@ -859,11 +868,15 @@ const MobileNewChatSheet: React.FC<{
 
   const createMobileConversation = async () => {
     if (!selectedAgent || isCreating) return;
+    if (!mobileWorkspace) {
+      ArcoMessage.error('Workspace is still loading');
+      return;
+    }
     const input = draft.trim();
     setIsCreating(true);
 
     try {
-      const params = await buildCliAgentParams(selectedAgent, MOBILE_DEFAULT_WORKSPACE);
+      const params = await buildCliAgentParams(selectedAgent, mobileWorkspace);
       const title = input.split(/\r?\n/)[0]?.trim() || `${selectedAgent.name || selectedBackend || 'Agent'} chat`;
       const conversation = await ipcBridge.conversation.create.invoke({
         ...params,
@@ -871,7 +884,7 @@ const MobileNewChatSheet: React.FC<{
         name: title,
         extra: {
           ...params.extra,
-          workspace: MOBILE_DEFAULT_WORKSPACE,
+          workspace: mobileWorkspace,
           custom_workspace: true,
           session_mode: selectedMode || params.extra?.session_mode,
           current_mode_id: selectedMode || params.extra?.current_mode_id,
@@ -883,7 +896,7 @@ const MobileNewChatSheet: React.FC<{
         throw new Error('Conversation create returned empty id');
       }
 
-      updateWorkspaceTime(MOBILE_DEFAULT_WORKSPACE);
+      updateWorkspaceTime(mobileWorkspace);
 
       if (input) {
         await ipcBridge.conversation.warmup.invoke({ conversation_id: conversation.id }).catch(() => {});
@@ -907,7 +920,7 @@ const MobileNewChatSheet: React.FC<{
     <div className='mobile-new-chat'>
       <div className='mobile-new-chat__workspace'>
         <span>Workspace</span>
-        <strong>{MOBILE_DEFAULT_WORKSPACE}</strong>
+        <strong>{mobileWorkspace || 'Loading workspace...'}</strong>
       </div>
 
       <div className='mobile-new-chat__group'>
@@ -1022,7 +1035,7 @@ const MobileNewChatSheet: React.FC<{
       <button
         className='mobile-conversation__wide-action is-primary'
         type='button'
-        disabled={!selectedAgent || isCreating}
+        disabled={!selectedAgent || !mobileWorkspace || isCreating}
         onClick={() => void createMobileConversation()}
       >
         <span>{isCreating ? 'Creating...' : 'Create mobile chat'}</span>
@@ -1612,7 +1625,7 @@ const useMobileScrollAction = (
       const bottomGap = scroller.scrollHeight - scroller.clientHeight - current;
       const recentGesture = Date.now() - gestureUpdatedAt < 700 ? gestureDirection : null;
       const intendedAction: Exclude<ScrollAction, null> =
-        recentGesture === 'up' || (!recentGesture && delta > 0) ? 'top' : 'bottom';
+        recentGesture === 'up' || (!recentGesture && delta > 0) ? 'bottom' : 'top';
       if (intendedAction === 'top' && current > 24) {
         setScrollAction('top');
         scheduleHide();
@@ -1798,6 +1811,7 @@ const MobileConversationPage: React.FC = () => {
     void navigate(`/mobile/conversation/${conversationId}`);
   };
 
+  const defaultNewChatWorkspace = conversation ? getExtra(conversation).workspace : undefined;
   const title = conversation?.name || 'AionUi';
   const status = conversation?.status || (isLoading ? 'loading' : 'ready');
 
@@ -1829,7 +1843,19 @@ const MobileConversationPage: React.FC = () => {
           {conversation ? (
             <MobileAgentChat conversation={conversation} />
           ) : (
-            <div className='mobile-conversation__loading'>{isLoading ? 'Loading chat...' : 'Chat not found'}</div>
+            <div className='mobile-conversation__loading'>
+              <div>{isLoading ? 'Loading chat...' : 'Chat not found'}</div>
+              {!isLoading && (
+                <button
+                  className='mobile-conversation__wide-action is-primary'
+                  type='button'
+                  onClick={createConversation}
+                >
+                  <Plus theme='outline' size='17' />
+                  <span>New mobile chat</span>
+                </button>
+              )}
+            </div>
           )}
           {scrollAction && (
             <button
@@ -1983,7 +2009,11 @@ const MobileConversationPage: React.FC = () => {
               <CloseSmall theme='outline' size='20' />
             </MobileIconButton>
           </div>
-          <MobileNewChatSheet initialAgentKey={newChatAgentKey} onCreated={handleMobileChatCreated} />
+          <MobileNewChatSheet
+            initialAgentKey={newChatAgentKey}
+            defaultWorkspace={defaultNewChatWorkspace}
+            onCreated={handleMobileChatCreated}
+          />
         </aside>
       </div>
     </LayoutContext.Provider>
