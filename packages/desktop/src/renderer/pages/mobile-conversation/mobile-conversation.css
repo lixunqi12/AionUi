@@ -493,6 +493,16 @@
   background: rgb(var(--primary-6));
 }
 
+.mobile-composer__send:not(:disabled) svg,
+.mobile-composer__send:not(:disabled) svg [stroke] {
+  color: #fff;
+  stroke: #fff;
+}
+
+.mobile-composer__send:not(:disabled) svg [fill]:not([fill='none']) {
+  fill: #fff;
+}
+
 .mobile-composer__send:disabled {
   color: var(--text-secondary);
   background: var(--fill-3);
