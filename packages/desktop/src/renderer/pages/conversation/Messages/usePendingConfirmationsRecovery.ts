@@ -39,6 +39,18 @@ export function removePermissionMessage(list: TMessage[], target: { id?: string;
   });
 }
 
+function upsertPendingConfirmationMessage(
+  list: TMessage[],
+  conversation_id: string,
+  confirmation: IConfirmation<unknown>
+): TMessage[] {
+  const withoutStale = removePermissionMessage(list, {
+    id: confirmation.id,
+    call_id: confirmation.call_id,
+  });
+  return withoutStale.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -50,34 +62,66 @@ export function usePendingConfirmationsRecovery(conversation_id: string) {
     if (!conversation_id) return;
     let cancelled = false;
 
-    void ipcBridge.conversation.confirmation.list
-      .invoke({ conversation_id })
-      .then((confirmations) => {
-        if (cancelled) return;
-        updateMessageList((list) => {
-          let next = list;
-          for (const confirmation of confirmations ?? []) {
-            if (hasPermissionMessageForCallId(next, confirmation.call_id)) continue;
-            next = next.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
-          }
-          return next;
+    const refreshPendingConfirmations = () => {
+      void ipcBridge.conversation.confirmation.list
+        .invoke({ conversation_id })
+        .then((confirmations) => {
+          if (cancelled) return;
+          updateMessageList((list) => {
+            let next = list;
+            for (const confirmation of confirmations ?? []) {
+              if (hasPermissionMessageForCallId(next, confirmation.call_id)) continue;
+              next = next.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
+            }
+            return next;
+          });
+        })
+        .catch((error) => {
+          console.warn('[pending-confirmations] failed to recover pending confirmations', {
+            conversation_id,
+            error: errorMessage(error),
+          });
         });
-      })
-      .catch((error) => {
-        console.warn('[pending-confirmations] failed to recover pending confirmations', {
-          conversation_id,
-          error: errorMessage(error),
-        });
-      });
+    };
 
-    const off = ipcBridge.conversation.confirmation.remove.on((event) => {
+    refreshPendingConfirmations();
+
+    const offAdd = ipcBridge.conversation.confirmation.add.on((confirmation) => {
+      if (confirmation.conversation_id !== conversation_id) return;
+      updateMessageList((list) => upsertPendingConfirmationMessage(list, conversation_id, confirmation));
+    });
+
+    const offUpdate = ipcBridge.conversation.confirmation.update.on((confirmation) => {
+      if (confirmation.conversation_id !== conversation_id) return;
+      updateMessageList((list) => upsertPendingConfirmationMessage(list, conversation_id, confirmation));
+    });
+
+    const offRemove = ipcBridge.conversation.confirmation.remove.on((event) => {
       if (event.conversation_id !== conversation_id) return;
       updateMessageList((list) => removePermissionMessage(list, { id: event.id, call_id: event.id }));
     });
 
+    const offTurnCompleted = ipcBridge.conversation.turnCompleted.on((event) => {
+      if (event.session_id !== conversation_id) return;
+      if (event.runtime.pending_confirmations > 0) {
+        refreshPendingConfirmations();
+      }
+    });
+
+    const offVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshPendingConfirmations();
+      }
+    };
+    document.addEventListener('visibilitychange', offVisibility);
+
     return () => {
       cancelled = true;
-      off();
+      offAdd();
+      offUpdate();
+      offRemove();
+      offTurnCompleted();
+      document.removeEventListener('visibilitychange', offVisibility);
     };
   }, [conversation_id, updateMessageList]);
 }

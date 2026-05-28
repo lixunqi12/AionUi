@@ -1,5 +1,6 @@
 import { ipcBridge } from '@/common';
 import type { IMessageAcpPermission, IMessagePermission, TMessage } from '@/common/chat/chatLib';
+import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import type { IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
@@ -1084,6 +1085,53 @@ const MobileAttachmentChip: React.FC<{ path: string; onRemove?: () => void }> = 
   );
 };
 
+const isActiveTurnMessage = (message: TMessage): boolean => {
+  switch (message.type) {
+    case 'text':
+      return message.status === 'pending' || message.status === 'work';
+    case 'thinking':
+      return message.content.status === 'thinking';
+    case 'tool_call':
+      return message.content.status === 'running' || (!message.content.status && message.status === 'work');
+    case 'tool_group':
+      return Array.isArray(message.content)
+        ? message.content.some(
+            (call) => call.status === 'Executing' || call.status === 'Pending' || call.status === 'Confirming'
+          )
+        : false;
+    case 'acp_tool_call':
+      return message.content.update.status === 'pending' || message.content.update.status === 'in_progress';
+    case 'permission':
+    case 'acp_permission':
+      return true;
+    default:
+      return message.status === 'pending' || message.status === 'work';
+  }
+};
+
+const isTerminalAssistantMessage = (message: TMessage): boolean => {
+  if (message.position === 'right') return false;
+  if (message.status === 'finish' || message.status === 'error') return true;
+  return message.type === 'tips' && message.content.type === 'error';
+};
+
+const latestTurnLooksFinished = (messages: TMessage[]): boolean => {
+  let lastUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].position === 'right') {
+      lastUserIndex = index;
+      break;
+    }
+  }
+
+  const currentTurnMessages = messages.slice(lastUserIndex + 1);
+  if (!currentTurnMessages.length) return false;
+
+  const hasActiveMessage = currentTurnMessages.some(isActiveTurnMessage);
+  const hasTerminalAssistantMessage = currentTurnMessages.some(isTerminalAssistantMessage);
+  return hasTerminalAssistantMessage && !hasActiveMessage;
+};
+
 const getToolSummary = (message: TMessage): { title: string; detail: string; status: string } => {
   if (message.type === 'tool_call') {
     return {
@@ -1376,21 +1424,22 @@ const MobileAgentChat: React.FC<{ conversation: TChatConversation }> = ({ conver
           custom_workspace: true,
           is_temporary_workspace: false,
         };
+        const workspaceUpdates = {
+          extra: {
+            workspace: fallbackWorkspace,
+            custom_workspace: true,
+            is_temporary_workspace: false,
+          } as Partial<ConversationExtra>,
+        } as Partial<TChatConversation>;
         const ok = await ipcBridge.conversation.update.invoke({
           id: conversation.id,
-          updates: {
-            extra: {
-              workspace: fallbackWorkspace,
-              custom_workspace: true,
-              is_temporary_workspace: false,
-            },
-          },
+          updates: workspaceUpdates,
           merge_extra: true,
         });
         if (!ok) throw new Error('Workspace repair was rejected');
         if (cancelled) return;
 
-        const nextConversation = { ...conversation, extra: nextExtra };
+        const nextConversation = { ...conversation, extra: nextExtra } as TChatConversation;
         setRepairedConversation(nextConversation);
         await mutate(['mobile-conversation', conversation.id], nextConversation, false);
         await mutate('mobile-conversation-history');
@@ -1410,9 +1459,7 @@ const MobileAgentChat: React.FC<{ conversation: TChatConversation }> = ({ conver
   if (needsWorkspaceRepair && !repairedConversation) {
     return (
       <div className='mobile-agent-chat'>
-        <div className='mobile-agent-chat__empty'>
-          {repairError || 'Repairing mobile workspace...'}
-        </div>
+        <div className='mobile-agent-chat__empty'>{repairError || 'Repairing mobile workspace...'}</div>
       </div>
     );
   }
@@ -1454,8 +1501,14 @@ const MobileAgentChatInner: React.FC<{ conversation: TChatConversation }> = ({ c
   const acpState = useAcpMessage(conversation.id, { skipWarmup: conversation.type === 'gemini' });
 
   const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages]);
+  const latestTurnFinished = useMemo(() => latestTurnLooksFinished(visibleMessages), [visibleMessages]);
   const readOnly = conversation.type === 'gemini';
-  const running = acpState.running || acpState.aiProcessing || conversation.status === 'running';
+  const suppressStaleRunning = conversation.status === 'finished' || latestTurnFinished;
+  const running =
+    !suppressStaleRunning &&
+    (acpState.running ||
+      acpState.aiProcessing ||
+      (!acpState.hasHydratedRunningState && conversation.status === 'running'));
 
   const conversationValue = useMemo<ConversationContextValue>(
     () => ({
@@ -1483,6 +1536,11 @@ const MobileAgentChatInner: React.FC<{ conversation: TChatConversation }> = ({ c
     if (userScrolledAwayRef.current) return;
     window.requestAnimationFrame(() => scrollToBottom('smooth'));
   }, [visibleMessages.length, running, scrollToBottom]);
+
+  useEffect(() => {
+    if (!suppressStaleRunning) return;
+    acpState.resetState();
+  }, [acpState.resetState, suppressStaleRunning]);
 
   const handleScroll = () => {
     const scroller = scrollerRef.current;
@@ -1782,6 +1840,7 @@ const MobileConversationPage: React.FC = () => {
     isLoading,
     mutate: mutateConversation,
   } = useSWR(id ? ['mobile-conversation', id] : null, () => getConversationOrNull(id!));
+  const [liveStatus, setLiveStatus] = useState<TChatConversation['status'] | null>(null);
 
   const { data: conversationsResult, mutate: mutateHistory } = useSWR('mobile-conversation-history', () =>
     ipcBridge.database.getUserConversations.invoke({ limit: HISTORY_PAGE_SIZE })
@@ -1801,6 +1860,50 @@ const MobileConversationPage: React.FC = () => {
         void mutateConversation();
       }
     });
+  }, [id, mutateConversation, mutateHistory]);
+
+  useEffect(() => {
+    setLiveStatus(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const refreshConversationState = () => {
+      void mutateConversation();
+      void mutateHistory();
+    };
+
+    const refreshConversationStateSoon = () => {
+      refreshConversationState();
+      window.setTimeout(refreshConversationState, 350);
+    };
+
+    const offResponseStream = ipcBridge.acpConversation.responseStream.on((message: IResponseMessage) => {
+      if (message.conversation_id !== id) return;
+
+      if (message.type === 'start') {
+        setLiveStatus('running');
+        refreshConversationState();
+        return;
+      }
+
+      if (message.type === 'finish' || message.type === 'error') {
+        setLiveStatus('finished');
+        refreshConversationStateSoon();
+      }
+    });
+
+    const offTurnCompleted = ipcBridge.conversation.turnCompleted.on((event) => {
+      if (event.session_id !== id) return;
+      setLiveStatus('finished');
+      refreshConversationStateSoon();
+    });
+
+    return () => {
+      offResponseStream();
+      offTurnCompleted();
+    };
   }, [id, mutateConversation, mutateHistory]);
 
   useEffect(() => {
@@ -1880,8 +1983,13 @@ const MobileConversationPage: React.FC = () => {
 
   const conversationWorkspace = conversation ? getExtra(conversation).workspace : undefined;
   const defaultNewChatWorkspace = isLegacyMobileWorkspace(conversationWorkspace) ? undefined : conversationWorkspace;
+  const activeConversation = useMemo(() => {
+    if (!conversation || !liveStatus) return conversation;
+    if (conversation.status === 'finished' && liveStatus === 'running') return conversation;
+    return { ...conversation, status: liveStatus };
+  }, [conversation, liveStatus]);
   const title = conversation?.name || 'AionUi';
-  const status = conversation?.status || (isLoading ? 'loading' : 'ready');
+  const status = activeConversation?.status || (isLoading ? 'loading' : 'ready');
 
   return (
     <LayoutContext.Provider value={layoutValue}>
@@ -1908,8 +2016,8 @@ const MobileConversationPage: React.FC = () => {
         </header>
 
         <main className='mobile-conversation__main'>
-          {conversation ? (
-            <MobileAgentChat conversation={conversation} />
+          {activeConversation ? (
+            <MobileAgentChat conversation={activeConversation} />
           ) : (
             <div className='mobile-conversation__loading'>
               <div>{isLoading ? 'Loading chat...' : 'Chat not found'}</div>
