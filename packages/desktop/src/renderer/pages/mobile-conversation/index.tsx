@@ -42,7 +42,8 @@ import { ArrowUp, CloseSmall, Down, History, Moon, Plus, Refresh, SettingTwo, Su
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
+import { isLegacyMobileWorkspace, resolveMobileWorkspace } from './mobileWorkspace';
 import './mobile-conversation.css';
 
 const MOBILE_REFRESH_INTERVAL_MS = 1800;
@@ -111,10 +112,6 @@ const pickString = (...values: unknown[]): string => {
     if (typeof value === 'string' && value.trim()) return value;
   }
   return '';
-};
-
-const resolveMobileWorkspace = (preferredWorkspace?: string, systemWorkDir?: string): string => {
-  return pickString(preferredWorkspace, systemWorkDir);
 };
 
 const getConversationActivityTime = (conversation: TChatConversation): number => {
@@ -1351,10 +1348,80 @@ const MobileComposer: React.FC<{
 };
 
 const MobileAgentChat: React.FC<{ conversation: TChatConversation }> = ({ conversation }) => {
+  const { mutate } = useSWRConfig();
+  const extra = getExtra(conversation);
+  const needsWorkspaceRepair = isLegacyMobileWorkspace(extra.workspace);
+  const { data: systemInfo } = useSWR(needsWorkspaceRepair ? ['mobile-workspace-repair', conversation.id] : null, () =>
+    ipcBridge.application.systemInfo.invoke()
+  );
+  const [repairedConversation, setRepairedConversation] = useState<TChatConversation | null>(null);
+  const [repairError, setRepairError] = useState('');
+
+  useEffect(() => {
+    setRepairedConversation(null);
+    setRepairError('');
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (!needsWorkspaceRepair || repairedConversation?.id === conversation.id) return;
+    const fallbackWorkspace = resolveMobileWorkspace(undefined, systemInfo?.workDir);
+    if (!fallbackWorkspace) return;
+
+    let cancelled = false;
+    const repairWorkspace = async () => {
+      try {
+        const nextExtra = {
+          ...getExtra(conversation),
+          workspace: fallbackWorkspace,
+          custom_workspace: true,
+          is_temporary_workspace: false,
+        };
+        const ok = await ipcBridge.conversation.update.invoke({
+          id: conversation.id,
+          updates: {
+            extra: {
+              workspace: fallbackWorkspace,
+              custom_workspace: true,
+              is_temporary_workspace: false,
+            },
+          },
+          merge_extra: true,
+        });
+        if (!ok) throw new Error('Workspace repair was rejected');
+        if (cancelled) return;
+
+        const nextConversation = { ...conversation, extra: nextExtra };
+        setRepairedConversation(nextConversation);
+        await mutate(['mobile-conversation', conversation.id], nextConversation, false);
+        await mutate('mobile-conversation-history');
+        emitter.emit('chat.history.refresh');
+      } catch (error) {
+        if (cancelled) return;
+        setRepairError(parseError(error) || 'Workspace repair failed');
+      }
+    };
+
+    void repairWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation, conversation.id, mutate, needsWorkspaceRepair, repairedConversation?.id, systemInfo?.workDir]);
+
+  if (needsWorkspaceRepair && !repairedConversation) {
+    return (
+      <div className='mobile-agent-chat'>
+        <div className='mobile-agent-chat__empty'>
+          {repairError || 'Repairing mobile workspace...'}
+        </div>
+      </div>
+    );
+  }
+
+  const activeConversation = repairedConversation || conversation;
   return (
     <MessageListProvider value={[]}>
       <MessageListLoadingProvider value={false}>
-        <MobileAgentChatInner conversation={conversation} />
+        <MobileAgentChatInner conversation={activeConversation} />
       </MessageListLoadingProvider>
     </MessageListProvider>
   );
@@ -1811,7 +1878,8 @@ const MobileConversationPage: React.FC = () => {
     void navigate(`/mobile/conversation/${conversationId}`);
   };
 
-  const defaultNewChatWorkspace = conversation ? getExtra(conversation).workspace : undefined;
+  const conversationWorkspace = conversation ? getExtra(conversation).workspace : undefined;
+  const defaultNewChatWorkspace = isLegacyMobileWorkspace(conversationWorkspace) ? undefined : conversationWorkspace;
   const title = conversation?.name || 'AionUi';
   const status = conversation?.status || (isLoading ? 'loading' : 'ready');
 
