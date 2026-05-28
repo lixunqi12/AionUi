@@ -15,6 +15,11 @@ export const isLegacyMobileWorkspace = (workspace?: string | null): boolean => {
   return normalizeWorkspacePath(workspace) === normalizeWorkspacePath(LEGACY_MOBILE_DEFAULT_WORKSPACE);
 };
 
+export const isGeneratedTemporaryWorkspace = (workspace?: string | null): boolean => {
+  const normalized = normalizeWorkspacePath(workspace);
+  return /\\conversations\\[^\\]+-temp-[^\\]+$/.test(normalized);
+};
+
 export const resolveMobileWorkspace = (preferredWorkspace?: string, systemWorkDir?: string): string => {
   const preferred = pickString(preferredWorkspace);
   if (preferred && !isLegacyMobileWorkspace(preferred)) return preferred;
