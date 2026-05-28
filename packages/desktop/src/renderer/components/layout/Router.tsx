@@ -5,6 +5,7 @@ import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 import { ipcBridge } from '@/common';
 import type { TTeam } from '@/common/types/team/teamTypes';
+import { isLegacyMobileWorkspace } from '@renderer/pages/mobile-conversation/mobileWorkspace';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const MobileConversation = React.lazy(() => import('@renderer/pages/mobile-conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
@@ -71,9 +72,10 @@ const MobileEntryRoute: React.FC = () => {
     const openLatestMobileConversation = async () => {
       try {
         const result = await ipcBridge.database.getUserConversations.invoke({ limit: 1 });
-        const latestId = result.items?.[0]?.id;
-        if (!cancelled && latestId) {
-          void navigate(`/mobile/conversation/${latestId}`, { replace: true });
+        const latest = result.items?.[0];
+        const latestWorkspace = (latest?.extra as { workspace?: string } | undefined)?.workspace;
+        if (!cancelled && latest?.id && !isLegacyMobileWorkspace(latestWorkspace)) {
+          void navigate(`/mobile/conversation/${latest.id}`, { replace: true });
           return;
         }
       } catch (error) {
