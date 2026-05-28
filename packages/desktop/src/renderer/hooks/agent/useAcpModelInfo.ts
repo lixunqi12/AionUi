@@ -32,7 +32,7 @@ export interface UseAcpModelInfoResult {
   /** True when the agent exposes a switchable model list */
   canSwitch: boolean;
   /** Switch the active model and persist via IPC */
-  selectModel: (model_id: string) => void;
+  selectModel: (model_id: string) => Promise<void>;
 }
 
 /**
@@ -196,7 +196,7 @@ export const useAcpModelInfo = ({
   }, [conversation_id, initialModelId, updateModelInfo]);
 
   const selectModel = useCallback(
-    (model_id: string) => {
+    async (model_id: string) => {
       hasUserChangedModel.current = true;
       setModelInfo((prev) => {
         if (!prev) return prev;
@@ -207,21 +207,17 @@ export const useAcpModelInfo = ({
           current_model_label: selectedModel?.label || model_id,
         };
       });
-      ipcBridge.acpConversation.setModel
-        .invoke({ conversation_id, model_id })
-        .then(() => {
-          ipcBridge.acpConversation.getModel
-            .invoke({ conversation_id })
-            .then((result) => {
-              if (result?.model_info) updateModelInfo(result.model_info);
-            })
-            .catch(() => {});
-        })
-        .catch((error) => {
-          console.error('[useAcpModelInfo] Failed to set model:', error);
-        });
+      try {
+        await ipcBridge.acpConversation.setModel.invoke({ conversation_id, model_id });
+        const result = await ipcBridge.acpConversation.getModel.invoke({ conversation_id }).catch((): null => null);
+        if (result?.model_info) updateModelInfo(result.model_info);
+      } catch (error) {
+        console.error('[useAcpModelInfo] Failed to set model:', error);
+        void reloadModelInfo().catch(() => {});
+        throw error;
+      }
     },
-    [conversation_id, updateModelInfo]
+    [conversation_id, reloadModelInfo, updateModelInfo]
   );
 
   const canSwitch = Boolean(model_info && model_info.available_models.length > 0);

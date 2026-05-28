@@ -146,13 +146,13 @@ export const conversation = {
       const { model: _rawModel, ...rest } = p.conversation as TChatConversation & {
         model?: TProviderWithModel;
       };
-      const conversation: Record<string, unknown> = { ...rest };
+      const cloneConversation: Record<string, unknown> = { ...rest };
       if (isAionrs) {
         const model = toApiModelOptional(_rawModel);
-        if (model) conversation.model = model;
+        if (model) cloneConversation.model = model;
       }
       return {
-        conversation,
+        conversation: cloneConversation,
       };
     }),
     fromApiConversation
@@ -1300,6 +1300,7 @@ export interface ICreateConversationParams {
     preset_context?: string;
     preset_assistant_id?: string;
     session_mode?: string;
+    current_mode_id?: string;
     codex_model?: string;
     current_model_id?: string;
     cached_config_options?: import('../types/platform/acpTypes').AcpSessionConfigOption[];

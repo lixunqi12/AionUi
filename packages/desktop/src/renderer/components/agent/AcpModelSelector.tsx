@@ -100,7 +100,7 @@ const AcpModelSelector: React.FC<{
             <Menu.Item
               key={model.id}
               className={model.id === model_info.current_model_id ? 'bg-2!' : ''}
-              onClick={() => selectModel(model.id)}
+              onClick={() => void selectModel(model.id)}
             >
               <div className='flex items-center gap-8px w-full'>
                 <span>{model.label || model.id}</span>
