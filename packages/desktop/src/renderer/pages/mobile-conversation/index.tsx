@@ -1981,8 +1981,12 @@ const MobileConversationPage: React.FC = () => {
     void navigate(`/mobile/conversation/${conversationId}`);
   };
 
-  const conversationWorkspace = conversation ? getExtra(conversation).workspace : undefined;
-  const defaultNewChatWorkspace = isLegacyMobileWorkspace(conversationWorkspace) ? undefined : conversationWorkspace;
+  const conversationExtra = conversation ? getExtra(conversation) : undefined;
+  const conversationWorkspace = conversationExtra?.workspace;
+  const defaultNewChatWorkspace =
+    conversationExtra?.is_temporary_workspace || isLegacyMobileWorkspace(conversationWorkspace)
+      ? undefined
+      : conversationWorkspace;
   const activeConversation = useMemo(() => {
     if (!conversation || !liveStatus) return conversation;
     if (conversation.status === 'finished' && liveStatus === 'running') return conversation;
