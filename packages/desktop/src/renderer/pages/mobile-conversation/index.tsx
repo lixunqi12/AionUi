@@ -1,5 +1,6 @@
 import { ipcBridge } from '@/common';
 import type { IMessageAcpPermission, IMessagePermission, TMessage } from '@/common/chat/chatLib';
+import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import type { IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
 import type { AcpModelInfo } from '@/common/types/platform/acpTypes';
@@ -29,7 +30,9 @@ import { useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAc
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { buildCliAgentParams } from '@/renderer/pages/conversation/utils/createConversationParams';
 import { useTeamList } from '@/renderer/pages/team/hooks/useTeamList';
+import { FileService, getCleanFileName } from '@/renderer/services/FileService';
 import { emitter } from '@/renderer/utils/emitter';
+import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { getAgentKey } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { getWorkspaceDisplayName } from '@/renderer/utils/workspace/workspace';
@@ -54,6 +57,8 @@ type ConversationExtra = {
   workspace?: string;
   session_mode?: string;
   sessionMode?: string;
+  current_mode_id?: string;
+  currentModeId?: string;
   sandboxMode?: string;
   sandbox_mode?: string;
   agent_name?: string;
@@ -240,7 +245,16 @@ const getModelLabel = (conversation?: TChatConversation | null): string => {
 const getModeLabel = (conversation?: TChatConversation | null): string => {
   if (!conversation) return '-';
   const extra = getExtra(conversation);
-  return pickString(extra.session_mode, extra.sessionMode, extra.sandboxMode, extra.sandbox_mode) || '-';
+  return (
+    pickString(
+      extra.current_mode_id,
+      extra.currentModeId,
+      extra.session_mode,
+      extra.sessionMode,
+      extra.sandboxMode,
+      extra.sandbox_mode
+    ) || '-'
+  );
 };
 
 const formatHistoryTime = (conversation: TChatConversation): string => {
@@ -352,6 +366,19 @@ const getPrimaryTeamConversationId = (group: MobileTeamGroup): string => {
   const leaderSlotId = group.team?.leader_agent_id;
   const leaderAgent = group.team?.agents.find((agent) => agent.slot_id === leaderSlotId || agent.role === 'leader');
   return pickString(leaderAgent?.conversation_id, group.conversations[0]?.id, group.team?.agents[0]?.conversation_id);
+};
+
+const getTeamLeaderLabel = (group: MobileTeamGroup): string => {
+  const primaryConversationId = getPrimaryTeamConversationId(group);
+  const leaderConversation = group.conversations.find((item) => item.id === primaryConversationId);
+  const leaderSlotId = group.team?.leader_agent_id;
+  const leaderAgent = group.team?.agents.find((agent) => agent.slot_id === leaderSlotId || agent.role === 'leader');
+  return pickString(leaderAgent?.agent_name, leaderConversation?.name, 'Leader');
+};
+
+const getTeamSubConversations = (group: MobileTeamGroup): TChatConversation[] => {
+  const primaryConversationId = getPrimaryTeamConversationId(group);
+  return group.conversations.filter((item) => item.id !== primaryConversationId);
 };
 
 const getCachedAcpModelInfo = (agent?: AgentMetadata): AcpModelInfo | null => {
@@ -470,17 +497,37 @@ const MobileHistorySection: React.FC<{
 
 const MobileHistoryTeamButton: React.FC<{
   group: MobileTeamGroup;
+  expanded: boolean;
   onOpenTeam: (group: MobileTeamGroup) => void;
-}> = ({ group, onOpenTeam }) => {
+  onToggleAgents: (teamId: string) => void;
+}> = ({ group, expanded, onOpenTeam, onToggleAgents }) => {
   const latest = group.conversations[0];
   const agentCount = group.team?.agents?.length ?? group.conversations.length;
+  const leaderLabel = getTeamLeaderLabel(group);
   return (
-    <button className='mobile-conversation__history-team' type='button' onClick={() => onOpenTeam(group)}>
-      <span className='mobile-conversation__history-title'>{group.name}</span>
-      <span className='mobile-conversation__history-meta'>
-        {agentCount} agents{latest ? ` - ${formatHistoryTime(latest)}` : ''}
-      </span>
-    </button>
+    <div className='mobile-conversation__history-team-row'>
+      <button className='mobile-conversation__history-team-main' type='button' onClick={() => onOpenTeam(group)}>
+        <span className='mobile-conversation__history-title'>{group.name}</span>
+        <span className='mobile-conversation__history-meta'>
+          Leader: {leaderLabel}
+          {latest ? ` - ${formatHistoryTime(latest)}` : ''}
+        </span>
+      </button>
+      <button
+        className='mobile-conversation__history-team-toggle'
+        type='button'
+        onClick={() => onToggleAgents(group.teamId)}
+        aria-expanded={expanded}
+        aria-label={`Toggle agents for ${group.name}`}
+      >
+        <span>Agents {agentCount}</span>
+        <Down
+          className={classNames('mobile-conversation__history-team-toggle-icon', !expanded && 'is-collapsed')}
+          theme='outline'
+          size='13'
+        />
+      </button>
+    </div>
   );
 };
 
@@ -573,10 +620,14 @@ const MobileConversationSettings: React.FC<{
   }, [currentModelBase, model_info?.available_models]);
   const currentReasoning = getReasoningValue(currentAcpModelId);
 
-  const handleAcpModelSelect = (modelId: string) => {
-    selectModel(modelId);
-    onConversationChanged();
-    ArcoMessage.success('Model changed');
+  const handleAcpModelSelect = async (modelId: string) => {
+    try {
+      await selectModel(modelId);
+      onConversationChanged();
+      ArcoMessage.success('Model changed');
+    } catch (error) {
+      ArcoMessage.error(parseError(error) || 'Model change failed');
+    }
   };
 
   const handleAionrsModelSelect = async (provider: IProvider, modelName: string) => {
@@ -647,7 +698,7 @@ const MobileConversationSettings: React.FC<{
                     key={model.id}
                     label={model.label || model.id}
                     active={model_info!.current_model_id === model.id}
-                    onClick={() => handleAcpModelSelect(model.id)}
+                    onClick={() => void handleAcpModelSelect(model.id)}
                   />
                 ))}
               </MobileOptionList>
@@ -666,7 +717,7 @@ const MobileConversationSettings: React.FC<{
                 key={reasoning}
                 label={reasoning}
                 active={currentReasoning === reasoning}
-                onClick={() => handleAcpModelSelect(`${currentModelBase}/${reasoning}`)}
+                onClick={() => void handleAcpModelSelect(`${currentModelBase}/${reasoning}`)}
               />
             ))}
           </MobileOptionList>
@@ -823,6 +874,7 @@ const MobileNewChatSheet: React.FC<{
           workspace: MOBILE_DEFAULT_WORKSPACE,
           custom_workspace: true,
           session_mode: selectedMode || params.extra?.session_mode,
+          current_mode_id: selectedMode || params.extra?.current_mode_id,
           current_model_id: selectedAcpModelId || params.extra?.current_model_id,
         },
       });
@@ -986,6 +1038,42 @@ const getTextContent = (message: TMessage): string => {
   return '';
 };
 
+const parseMobileFileMessage = (content: string): { text: string; files: string[] } => {
+  const markerIndex = content.indexOf(AIONUI_FILES_MARKER);
+  if (markerIndex === -1) return { text: content, files: [] };
+
+  const text = content.slice(0, markerIndex).trimEnd();
+  const files = content
+    .slice(markerIndex + AIONUI_FILES_MARKER.length)
+    .trim()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return { text, files };
+};
+
+const MobileAttachmentChip: React.FC<{ path: string; onRemove?: () => void }> = ({ path, onRemove }) => {
+  const name = getCleanFileName(path) || path;
+
+  return (
+    <div className='mobile-attachment-chip'>
+      <span className='mobile-attachment-chip__icon'>FILE</span>
+      <span className='mobile-attachment-chip__name'>{name}</span>
+      {onRemove && (
+        <button
+          className='mobile-attachment-chip__remove'
+          type='button'
+          onClick={onRemove}
+          aria-label={`Remove ${name}`}
+        >
+          <CloseSmall theme='outline' size='14' />
+        </button>
+      )}
+    </div>
+  );
+};
+
 const getToolSummary = (message: TMessage): { title: string; detail: string; status: string } => {
   if (message.type === 'tool_call') {
     return {
@@ -1129,8 +1217,8 @@ const MobileMessageBubble: React.FC<{ message: TMessage }> = ({ message }) => {
     );
   }
 
-  const text = getTextContent(message);
-  if (!text.trim()) return null;
+  const { text, files } = parseMobileFileMessage(getTextContent(message));
+  if (!text.trim() && files.length === 0) return null;
 
   const isUser = message.position === 'right';
   return (
@@ -1141,7 +1229,15 @@ const MobileMessageBubble: React.FC<{ message: TMessage }> = ({ message }) => {
           isUser ? 'mobile-message__bubble--user' : 'mobile-message__bubble--assistant'
         )}
       >
-        {isUser ? <div className='mobile-message__plain-text'>{text}</div> : <MarkdownView>{text}</MarkdownView>}
+        {files.length > 0 && (
+          <div className='mobile-message__attachments'>
+            {files.map((path) => (
+              <MobileAttachmentChip key={path} path={path} />
+            ))}
+          </div>
+        )}
+        {text.trim() &&
+          (isUser ? <div className='mobile-message__plain-text'>{text}</div> : <MarkdownView>{text}</MarkdownView>)}
         <div className='mobile-message__time'>{formatMessageTime(message.created_at)}</div>
       </div>
     </div>
@@ -1165,12 +1261,27 @@ const MobileComposer: React.FC<{
   onChange: (value: string) => void;
   onSend: () => void;
   onStop: () => void;
-  onOpenSettings: () => void;
+  onAttach: () => void;
+  onRemoveFile: (path: string) => void;
+  attachedFiles: string[];
   disabled?: boolean;
   running?: boolean;
   readOnly?: boolean;
-}> = ({ value, onChange, onSend, onStop, onOpenSettings, disabled, running, readOnly }) => {
-  const canSend = Boolean(value.trim()) && !disabled && !readOnly;
+  uploading?: boolean;
+}> = ({
+  value,
+  onChange,
+  onSend,
+  onStop,
+  onAttach,
+  onRemoveFile,
+  attachedFiles,
+  disabled,
+  running,
+  readOnly,
+  uploading,
+}) => {
+  const canSend = (Boolean(value.trim()) || attachedFiles.length > 0) && !disabled && !readOnly && !uploading;
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
@@ -1186,8 +1297,21 @@ const MobileComposer: React.FC<{
         if (canSend) onSend();
       }}
     >
+      {attachedFiles.length > 0 && (
+        <div className='mobile-composer__attachments'>
+          {attachedFiles.map((path) => (
+            <MobileAttachmentChip key={path} path={path} onRemove={() => onRemoveFile(path)} />
+          ))}
+        </div>
+      )}
       <div className='mobile-composer__bar'>
-        <button className='mobile-composer__tool' type='button' onClick={onOpenSettings} aria-label='Chat options'>
+        <button
+          className='mobile-composer__tool'
+          type='button'
+          onClick={onAttach}
+          aria-label='Attach files'
+          disabled={readOnly || uploading}
+        >
           <Plus theme='outline' size='22' />
         </button>
         <textarea
@@ -1213,14 +1337,11 @@ const MobileComposer: React.FC<{
   );
 };
 
-const MobileAgentChat: React.FC<{ conversation: TChatConversation; openSettings: () => void }> = ({
-  conversation,
-  openSettings,
-}) => {
+const MobileAgentChat: React.FC<{ conversation: TChatConversation }> = ({ conversation }) => {
   return (
     <MessageListProvider value={[]}>
       <MessageListLoadingProvider value={false}>
-        <MobileAgentChatInner conversation={conversation} openSettings={openSettings} />
+        <MobileAgentChatInner conversation={conversation} />
       </MessageListLoadingProvider>
     </MessageListProvider>
   );
@@ -1230,18 +1351,18 @@ const getConversationContextType = (conversation: TChatConversation): Conversati
   return conversation.type === 'gemini' ? 'acp' : conversation.type;
 };
 
-const MobileAgentChatInner: React.FC<{ conversation: TChatConversation; openSettings: () => void }> = ({
-  conversation,
-  openSettings,
-}) => {
+const MobileAgentChatInner: React.FC<{ conversation: TChatConversation }> = ({ conversation }) => {
   const extra = getExtra(conversation);
   const messages = useMessageList();
   const isLoading = useMessageListLoading();
   const addOrUpdateMessage = useAddOrUpdateMessage();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const userScrolledAwayRef = useRef(false);
   const [draft, setDraft] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 
   useMessageLstCache(conversation.id, {
     pageSize: MOBILE_MESSAGE_PAGE_SIZE,
@@ -1290,19 +1411,47 @@ const MobileAgentChatInner: React.FC<{ conversation: TChatConversation; openSett
     userScrolledAwayRef.current = bottomGap > 120;
   };
 
+  const handleAttachClick = () => {
+    if (readOnly || isUploadingFiles) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setIsUploadingFiles(true);
+    try {
+      const processed = await FileService.processDroppedFiles(fileList, conversation.id, 'sendbox');
+      const paths = processed.map((file) => file.path).filter(Boolean);
+      if (paths.length > 0) {
+        setAttachedFiles((prev) => Array.from(new Set([...prev, ...paths])));
+      }
+    } catch (error) {
+      ArcoMessage.error(parseError(error) || 'File upload failed');
+    } finally {
+      setIsUploadingFiles(false);
+      event.target.value = '';
+    }
+  };
+
   const sendMessage = async () => {
     const input = draft.trim();
-    if (!input || isSending || readOnly) return;
+    const filesToSend = attachedFiles;
+    if ((!input && filesToSend.length === 0) || isSending || readOnly || isUploadingFiles) return;
+    const displayMessage = buildDisplayMessage(input, filesToSend, extra.workspace || '');
 
     setDraft('');
+    setAttachedFiles([]);
     setIsSending(true);
     acpState.setAiProcessing(true);
     userScrolledAwayRef.current = false;
 
     try {
       const result = await ipcBridge.conversation.sendMessage.invoke({
-        input,
+        input: displayMessage,
         conversation_id: conversation.id,
+        files: filesToSend,
       });
       const msgId = result?.msg_id || uuid();
       addOrUpdateMessage(
@@ -1313,7 +1462,7 @@ const MobileAgentChatInner: React.FC<{ conversation: TChatConversation; openSett
           position: 'right',
           conversation_id: conversation.id,
           created_at: Date.now(),
-          content: { content: input },
+          content: { content: displayMessage },
         },
         true
       );
@@ -1379,10 +1528,21 @@ const MobileAgentChatInner: React.FC<{ conversation: TChatConversation; openSett
           onChange={setDraft}
           onSend={sendMessage}
           onStop={stopResponse}
-          onOpenSettings={openSettings}
+          onAttach={handleAttachClick}
+          onRemoveFile={(path) => setAttachedFiles((prev) => prev.filter((item) => item !== path))}
+          attachedFiles={attachedFiles}
           disabled={isSending}
           running={running}
           readOnly={readOnly}
+          uploading={isUploadingFiles}
+        />
+        <input
+          ref={fileInputRef}
+          className='mobile-composer__file-input'
+          type='file'
+          multiple
+          onChange={handleFileInputChange}
+          data-testid='mobile-composer-file-upload-input'
         />
       </div>
     </ConversationProvider>
@@ -1399,6 +1559,9 @@ const useMobileScrollAction = (
     let lastScrollTop = 0;
     let attachedAt = 0;
     let hideTimer: number | undefined;
+    let lastTouchY: number | null = null;
+    let gestureDirection: 'up' | 'down' | null = null;
+    let gestureUpdatedAt = 0;
 
     const clearHideTimer = () => {
       if (hideTimer !== undefined) {
@@ -1412,6 +1575,32 @@ const useMobileScrollAction = (
       hideTimer = window.setTimeout(() => setScrollAction(null), 2400);
     };
 
+    const rememberGesture = (direction: 'up' | 'down') => {
+      gestureDirection = direction;
+      gestureUpdatedAt = Date.now();
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      lastTouchY = event.touches[0]?.clientY ?? null;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      const currentY = event.touches[0]?.clientY;
+      if (currentY == null || lastTouchY == null) {
+        lastTouchY = currentY ?? null;
+        return;
+      }
+      const fingerDelta = currentY - lastTouchY;
+      lastTouchY = currentY;
+      if (Math.abs(fingerDelta) < 6) return;
+      rememberGesture(fingerDelta < 0 ? 'up' : 'down');
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) < 4) return;
+      rememberGesture(event.deltaY > 0 ? 'up' : 'down');
+    };
+
     const onScroll = () => {
       if (!scroller) return;
       const current = scroller.scrollTop;
@@ -1421,10 +1610,13 @@ const useMobileScrollAction = (
       if (Math.abs(delta) < 8) return;
 
       const bottomGap = scroller.scrollHeight - scroller.clientHeight - current;
-      if (delta > 0 && current > 24) {
+      const recentGesture = Date.now() - gestureUpdatedAt < 700 ? gestureDirection : null;
+      const intendedAction: Exclude<ScrollAction, null> =
+        recentGesture === 'up' || (!recentGesture && delta > 0) ? 'top' : 'bottom';
+      if (intendedAction === 'top' && current > 24) {
         setScrollAction('top');
         scheduleHide();
-      } else if (delta < 0 && bottomGap > 24) {
+      } else if (intendedAction === 'bottom' && bottomGap > 24) {
         setScrollAction('bottom');
         scheduleHide();
       } else {
@@ -1437,6 +1629,9 @@ const useMobileScrollAction = (
       if (!scroller) return false;
       lastScrollTop = scroller.scrollTop;
       attachedAt = Date.now();
+      scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+      scroller.addEventListener('touchmove', onTouchMove, { passive: true });
+      scroller.addEventListener('wheel', onWheel, { passive: true });
       scroller.addEventListener('scroll', onScroll, { passive: true });
       return true;
     };
@@ -1450,6 +1645,9 @@ const useMobileScrollAction = (
     return () => {
       window.clearInterval(retry);
       clearHideTimer();
+      scroller?.removeEventListener('touchstart', onTouchStart);
+      scroller?.removeEventListener('touchmove', onTouchMove);
+      scroller?.removeEventListener('wheel', onWheel);
       scroller?.removeEventListener('scroll', onScroll);
     };
   }, [conversationId]);
@@ -1487,6 +1685,14 @@ const MobileConversationPage: React.FC = () => {
       };
     } catch {
       return { pinned: false, teams: false, workspaces: false, normal: false };
+    }
+  });
+  const [expandedTeamAgents, setExpandedTeamAgents] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('mobile-history-expanded-team-agents');
+      return stored ? (JSON.parse(stored) as Record<string, boolean>) : {};
+    } catch {
+      return {};
     }
   });
   const { teams } = useTeamList();
@@ -1573,6 +1779,14 @@ const MobileConversationPage: React.FC = () => {
     });
   };
 
+  const toggleTeamAgents = (teamId: string) => {
+    setExpandedTeamAgents((prev) => {
+      const next = { ...prev, [teamId]: !prev[teamId] };
+      localStorage.setItem('mobile-history-expanded-team-agents', JSON.stringify(next));
+      return next;
+    });
+  };
+
   const startNewChatWithAgent = (agentKey?: string) => {
     setNewChatAgentKey(agentKey);
     setActiveSheet('new-chat');
@@ -1613,7 +1827,7 @@ const MobileConversationPage: React.FC = () => {
 
         <main className='mobile-conversation__main'>
           {conversation ? (
-            <MobileAgentChat conversation={conversation} openSettings={() => setActiveSheet('settings')} />
+            <MobileAgentChat conversation={conversation} />
           ) : (
             <div className='mobile-conversation__loading'>{isLoading ? 'Loading chat...' : 'Chat not found'}</div>
           )}
@@ -1670,15 +1884,21 @@ const MobileConversationPage: React.FC = () => {
               >
                 {historyGroups.teams.map((group) => (
                   <div className='mobile-conversation__history-team-group' key={group.teamId}>
-                    <MobileHistoryTeamButton group={group} onOpenTeam={goToTeam} />
-                    {group.conversations.slice(0, 4).map((item) => (
-                      <MobileHistoryConversationButton
-                        key={item.id}
-                        item={item}
-                        activeId={id}
-                        onClick={goToConversation}
-                      />
-                    ))}
+                    <MobileHistoryTeamButton
+                      group={group}
+                      expanded={Boolean(expandedTeamAgents[group.teamId])}
+                      onOpenTeam={goToTeam}
+                      onToggleAgents={toggleTeamAgents}
+                    />
+                    {expandedTeamAgents[group.teamId] &&
+                      getTeamSubConversations(group).map((item) => (
+                        <MobileHistoryConversationButton
+                          key={item.id}
+                          item={item}
+                          activeId={id}
+                          onClick={goToConversation}
+                        />
+                      ))}
                   </div>
                 ))}
               </MobileHistorySection>
