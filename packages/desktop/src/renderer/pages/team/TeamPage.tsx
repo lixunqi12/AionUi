@@ -18,6 +18,7 @@ import { saveAionrsDefaultModel } from '@/renderer/pages/guid/hooks/agentSelecti
 import TeamTabs from './components/TeamTabs';
 import TeamChatView from './components/TeamChatView';
 import TeamAgentIdentity from './components/TeamAgentIdentity';
+import TeamRuntimeInspector, { type TeamRuntimeStatusInfo } from './components/TeamRuntimeInspector';
 import { TeamTabsProvider, useTeamTabs } from './hooks/TeamTabsContext';
 import { TeamPermissionProvider } from './hooks/TeamPermissionContext';
 import { useTeamSession } from './hooks/useTeamSession';
@@ -56,9 +57,10 @@ const AgentChatSlot: React.FC<{
   team_id: string;
   isLeader: boolean;
   isFullscreen?: boolean;
+  statusInfo?: TeamRuntimeStatusInfo;
   onToggleFullscreen?: () => void;
   onRemove?: () => void;
-}> = ({ agent, team_id, isLeader, isFullscreen = false, onToggleFullscreen, onRemove }) => {
+}> = ({ agent, team_id, isLeader, isFullscreen = false, statusInfo, onToggleFullscreen, onRemove }) => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const { data: conversation } = useSWR(
@@ -100,6 +102,9 @@ const AgentChatSlot: React.FC<{
           className='min-w-0'
           nameClassName='text-13px text-[color:var(--color-text-2)] font-medium'
         />
+        {!isMobile && (
+          <TeamRuntimeInspector agent={agent} conversation={conversation} statusInfo={statusInfo} isLeader={isLeader} />
+        )}
         <div className='flex items-center gap-8px shrink-0'>
           {!isMobile && agent.conversation_id && !isAionrs && isAcpLike && (
             <div className='min-w-0 max-w-140px [&_button]:max-w-full [&_button_span]:truncate'>
@@ -377,6 +382,7 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
                     team_id={team.id}
                     isLeader={isLeaderSlot}
                     isFullscreen
+                    statusInfo={statusMap.get(agent.slot_id)}
                     onToggleFullscreen={() => setFullscreenSlotId(null)}
                     onRemove={() => handleRemoveAgent(agent.slot_id)}
                   />
@@ -431,6 +437,7 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
                         agent={agent}
                         team_id={team.id}
                         isLeader={isLeaderSlot}
+                        statusInfo={statusMap.get(agent.slot_id)}
                         onToggleFullscreen={() => setFullscreenSlotId(agent.slot_id)}
                         onRemove={() => handleRemoveAgent(agent.slot_id)}
                       />

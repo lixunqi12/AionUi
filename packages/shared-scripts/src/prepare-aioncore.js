@@ -2,7 +2,8 @@
  * Prepare aioncore binary for packaging.
  *
  * Resolution order:
- *  1. GitHub release download (requires version or defaults to "latest")
+ *  1. AIONCORE_LOCAL_BIN / AIONUI_BACKEND_LOCAL_BIN
+ *  2. GitHub release download (requires version or defaults to "latest")
  *
  * Output: {projectRoot}/resources/bundled-aioncore/{platform}-{arch}/aioncore[.exe]
  *
@@ -181,6 +182,16 @@ function downloadAndExtract(platform, arch, tag) {
   return { binaryPath, tempDir, url };
 }
 
+function localBinaryPath() {
+  const candidate = process.env.AIONCORE_LOCAL_BIN || process.env.AIONUI_BACKEND_LOCAL_BIN || '';
+  if (!candidate.trim()) return null;
+  const resolved = path.resolve(candidate);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`Local aioncore binary not found: ${resolved}`);
+  }
+  return resolved;
+}
+
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -227,6 +238,19 @@ function prepareAioncore(options) {
   let tempDir = null;
 
   // 1. Download from GitHub releases
+  const localPath = localBinaryPath();
+  if (localPath) {
+    sourcePath = localPath;
+    sourceType = 'local';
+    sourceDetail = {
+      path: localPath,
+      commit: process.env.AIONCORE_SOURCE_COMMIT || undefined,
+      repo: process.env.AIONCORE_SOURCE_REPO || undefined,
+    };
+    console.log(`  Using local aioncore binary: ${localPath}`);
+  }
+
+  // 2. Download from GitHub releases
   if (!sourcePath) {
     try {
       const result = downloadAndExtract(platform, arch, tag);

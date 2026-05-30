@@ -11,6 +11,8 @@
  * Environment variables:
  *  - AIONUI_BACKEND_VERSION: override the pinned version
  *  - AIONUI_BACKEND_ARCH: target architecture (default: process.arch)
+ *  - AIONCORE_LOCAL_BIN / AIONUI_BACKEND_LOCAL_BIN: use an already-built aioncore binary
+ *  - AIONCORE_SOURCE_COMMIT / AIONCORE_SOURCE_REPO: optional manifest metadata for local binaries
  *  - GH_TOKEN / GITHUB_TOKEN: GitHub API token (for rate limiting)
  */
 

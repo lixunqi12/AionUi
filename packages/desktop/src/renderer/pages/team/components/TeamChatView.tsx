@@ -1,5 +1,11 @@
 import { ipcBridge } from '@/common';
-import type { IProvider, TChatConversation, TProviderWithModel } from '@/common/config/storage';
+import type {
+  IConversationMcpStatus,
+  IProvider,
+  ISessionMcpServer,
+  TChatConversation,
+  TProviderWithModel,
+} from '@/common/config/storage';
 import { Spin } from '@arco-design/web-react';
 import React, { Suspense, useCallback } from 'react';
 import { useAionrsModelSelection } from '@/renderer/pages/conversation/platforms/aionrs/useAionrsModelSelection';
@@ -14,6 +20,26 @@ const RemoteChat = React.lazy(() => import('@/renderer/pages/conversation/platfo
 
 // Narrow to Aionrs conversations so model field is always available
 type AionrsConversation = Extract<TChatConversation, { type: 'aionrs' }>;
+
+type ConversationRuntimeExtra = {
+  workspace?: string;
+  backend?: string;
+  agent_name?: string;
+  session_mode?: string;
+  skills?: string[];
+  mcp_servers?: string[];
+  mcp_statuses?: IConversationMcpStatus[];
+  session_mcp_servers?: ISessionMcpServer[];
+};
+
+const runtimeExtra = (conversation: TChatConversation): ConversationRuntimeExtra =>
+  (conversation.extra ?? {}) as ConversationRuntimeExtra;
+
+const loadedMcpServerNames = (extra: ConversationRuntimeExtra): string[] | undefined => {
+  if (extra.mcp_servers?.length) return extra.mcp_servers;
+  if (extra.session_mcp_servers?.length) return extra.session_mcp_servers.map((server) => server.name);
+  return undefined;
+};
 
 /** Aionrs sub-component manages model selection state without adding a ChatLayout wrapper */
 const AionrsTeamChat: React.FC<{
@@ -32,13 +58,18 @@ const AionrsTeamChat: React.FC<{
   );
 
   const modelSelection = useAionrsModelSelection({ initialModel: conversation.model, onSelectModel });
+  const extra = runtimeExtra(conversation);
 
   return (
     <AionrsChat
       conversation_id={conversation.id}
       workspace={conversation.extra.workspace}
       modelSelection={modelSelection}
+      session_mode={extra.session_mode}
       emptySlot={emptySlot}
+      loadedSkills={extra.skills}
+      loadedMcpServers={loadedMcpServerNames(extra)}
+      loadedMcpStatuses={extra.mcp_statuses}
       agent_name={agent_name}
     />
   );
@@ -73,18 +104,22 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
     <TeamChatEmptyState conversation_id={conversation.id} icon={agent_icon} isLeader={isLeader} />
   ) : undefined;
   const content = (() => {
+    const extra = runtimeExtra(conversation);
     switch (conversation.type) {
       case 'acp':
         return (
           <AcpChat
             key={conversation.id}
             conversation_id={conversation.id}
-            workspace={conversation.extra?.workspace}
-            backend={conversation.extra?.backend || 'claude'}
-            session_mode={conversation.extra?.session_mode}
-            agent_name={agent_name ?? (conversation.extra as { agent_name?: string })?.agent_name}
+            workspace={extra.workspace}
+            backend={extra.backend || 'claude'}
+            session_mode={extra.session_mode}
+            agent_name={agent_name ?? extra.agent_name}
             hideSendBox={hideSendBox}
             emptySlot={emptySlot}
+            loadedSkills={extra.skills}
+            loadedMcpServers={loadedMcpServerNames(extra)}
+            loadedMcpStatuses={extra.mcp_statuses}
           />
         );
       case 'codex': // Legacy: codex now uses ACP protocol
@@ -92,11 +127,13 @@ const TeamChatView: React.FC<TeamChatViewProps> = ({
           <AcpChat
             key={conversation.id}
             conversation_id={conversation.id}
-            workspace={conversation.extra?.workspace}
+            workspace={extra.workspace}
             backend='codex'
-            agent_name={agent_name ?? (conversation.extra as { agent_name?: string })?.agent_name}
+            session_mode={extra.session_mode}
+            agent_name={agent_name ?? extra.agent_name}
             hideSendBox={hideSendBox}
             emptySlot={emptySlot}
+            loadedSkills={extra.skills}
           />
         );
       case 'aionrs':
