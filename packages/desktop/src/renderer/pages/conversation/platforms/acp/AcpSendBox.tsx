@@ -33,6 +33,7 @@ import {
   type ConversationCommandQueueItem,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
+import { selectRelevantSkillsForMessage } from '@/renderer/pages/conversation/utils/skillInjection';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import { allSupportedExts } from '@/renderer/services/FileService';
@@ -44,6 +45,7 @@ import { Message, Tag } from '@arco-design/web-react';
 import { Brain, MagicHat, Shield } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import useSWR from 'swr';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
 
@@ -140,6 +142,13 @@ const AcpSendBox: React.FC<{
   const isMobile = Boolean(layout?.isMobile);
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
+  const { data: globalSkills = [] } = useSWR('skills-index:sendbox', () =>
+    ipcBridge.fs.listAvailableSkills.invoke()
+  );
+  const skillCandidates = useMemo(() => {
+    const loaded = loadedSkills.map((name) => ({ name }));
+    return [...loaded, ...globalSkills.map((skill) => ({ name: skill.name, description: skill.description }))];
+  }, [globalSkills, loadedSkills]);
   const loadedMcpStatuses =
     conversationContext?.loadedMcpStatuses ??
     (conversationContext?.loadedMcpServers ?? []).map<IConversationMcpStatus>((name) => ({
@@ -266,6 +275,7 @@ const AcpSendBox: React.FC<{
 
       try {
         void checkAndUpdateTitle(conversation_id, input);
+        const injectSkills = selectRelevantSkillsForMessage(displayMessage, skillCandidates);
         // Wait for the server-assigned msg_id before rendering the optimistic
         // user bubble so the local row uses the same id as the DB row and
         // subsequent WebSocket stream events — avoids duplicate bubbles when
@@ -274,6 +284,7 @@ const AcpSendBox: React.FC<{
           input: displayMessage,
           conversation_id,
           files,
+          inject_skills: injectSkills,
         });
         // Use add=false (compose mode) so composeMessageWithIndex can de-dup
         // by msg_id — this prevents a duplicate bubble if useMessageLstCache
@@ -352,7 +363,7 @@ Please check your local CLI tool authentication status`,
         emitter.emit('acp.workspace.refresh');
       }
     },
-    [backend, checkAndUpdateTitle, conversation_id, setAiProcessing, t, workspacePath]
+    [backend, checkAndUpdateTitle, conversation_id, setAiProcessing, skillCandidates, t, workspacePath]
   );
 
   const {

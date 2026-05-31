@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { ToolCallBlock } from './ToolCallBlock';
 import { useThemeColor } from '../../hooks/useThemeColor';
@@ -102,26 +103,27 @@ function SummaryLine({ messages, complete, isStreaming, expanded, onPress }: Sum
 // --- ToolStepRow ---
 
 function ToolStepRow({ message }: { message: TMessage }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const items = getStepItems(message, t);
 
   return (
     <View style={styles.stepRow}>
       {expanded ? (
         <View>
-          <StepRowHeader message={message} onCollapse={() => setExpanded(false)} />
+          <StepRowHeader items={items} onCollapse={() => setExpanded(false)} />
           <ToolCallBlock content={message.content} type={message.type as any} />
         </View>
       ) : (
-        <StepRowCollapsed message={message} onPress={() => setExpanded(true)} />
+        <StepRowCollapsed items={items} onPress={() => setExpanded(true)} />
       )}
     </View>
   );
 }
 
-function StepRowHeader({ message, onCollapse }: { message: TMessage; onCollapse: () => void }) {
+function StepRowHeader({ items, onCollapse }: { items: StepItem[]; onCollapse: () => void }) {
   const iconColor = useThemeColor({}, 'icon');
   const tint = useThemeColor({}, 'tint');
-  const items = getStepItems(message);
   const label = items.map((i) => i.name).join(', ');
 
   return (
@@ -135,13 +137,11 @@ function StepRowHeader({ message, onCollapse }: { message: TMessage; onCollapse:
   );
 }
 
-function StepRowCollapsed({ message, onPress }: { message: TMessage; onPress: () => void }) {
+function StepRowCollapsed({ items, onPress }: { items: StepItem[]; onPress: () => void }) {
   const iconColor = useThemeColor({}, 'icon');
   const tint = useThemeColor({}, 'tint');
   const success = useThemeColor({}, 'success');
   const errorColor = useThemeColor({}, 'error');
-
-  const items = getStepItems(message);
 
   return (
     <View>
@@ -176,7 +176,7 @@ function StepRowCollapsed({ message, onPress }: { message: TMessage; onPress: ()
 
 type StepItem = { name: string; status: 'executing' | 'success' | 'error' | 'pending' };
 
-function getStepItems(msg: TMessage): StepItem[] {
+function getStepItems(msg: TMessage, t: TFunction): StepItem[] {
   if (msg.type === 'tool_group' && Array.isArray(msg.content)) {
     return msg.content.map((t: any) => ({
       name: t.description || t.name || t('chat.toolCall'),

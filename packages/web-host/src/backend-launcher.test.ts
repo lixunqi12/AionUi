@@ -71,8 +71,18 @@ function makeFakeChild(): ChildProcess {
   child.stderr = new EventEmitter() as ChildProcess['stderr'];
   (child.stdin as unknown) = { end: vi.fn() };
   child.kill = vi.fn() as unknown as ChildProcess['kill'];
+  child.unref = vi.fn() as unknown as ChildProcess['unref'];
   child.pid = 99999;
   return child as ChildProcess;
+}
+
+function expectProcessTreeKill(signal: 'SIGTERM' | 'SIGKILL', killSpy: ReturnType<typeof vi.spyOn>) {
+  if (process.platform === 'win32') {
+    const args = signal === 'SIGKILL' ? ['/F', '/PID', '99999', '/T'] : ['/PID', '99999', '/T'];
+    expect(spawn).toHaveBeenCalledWith('taskkill', args, expect.objectContaining({ windowsHide: true }));
+    return;
+  }
+  expect(killSpy).toHaveBeenCalledWith(expect.any(Number), signal);
 }
 
 function makeFakeSocket(): Socket {
@@ -265,7 +275,7 @@ describe('BackendLifecycleManager.start (health timeout)', () => {
     await expectedRejection;
 
     expect(mgr.status).toBe('error');
-    expect(killSpy).toHaveBeenCalled();
+    expectProcessTreeKill('SIGKILL', killSpy);
 
     fetchSpy.mockRestore();
     killSpy.mockRestore();
@@ -560,7 +570,7 @@ describe('BackendLifecycleManager.stop', () => {
     (child as unknown as EventEmitter).emit('exit', 0);
     await stopPromise;
 
-    expect(killSpy).toHaveBeenCalled();
+    expectProcessTreeKill('SIGTERM', killSpy);
     expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db');
     expect(mgr.status).toBe('stopped');
 
@@ -588,8 +598,8 @@ describe('BackendLifecycleManager.stop', () => {
     await new Promise((r) => setTimeout(r, 5_200));
     await stopPromise;
 
-    expect(killSpy.mock.calls).toEqual(expect.arrayContaining([[expect.any(Number), 'SIGTERM']]));
-    expect(killSpy.mock.calls).toEqual(expect.arrayContaining([[expect.any(Number), 'SIGKILL']]));
+    expectProcessTreeKill('SIGTERM', killSpy);
+    expectProcessTreeKill('SIGKILL', killSpy);
     expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db');
 
     fetchSpy.mockRestore();

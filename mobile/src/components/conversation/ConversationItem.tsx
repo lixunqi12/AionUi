@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform, Alert } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
 import type { Conversation } from '../../context/ConversationContext';
@@ -18,7 +19,7 @@ const agentBadgeColors: Record<string, string> = {
   qwen: '#7C3AED',
 };
 
-function formatTime(timestamp: number): string {
+function formatTime(timestamp: number, t: TFunction): string {
   const date = new Date(timestamp);
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
@@ -90,7 +91,7 @@ export function ConversationItem({ conversation, onPress, onDelete }: Conversati
             {conversation.name || t('conversations.untitled')}
           </ThemedText>
         </View>
-        <ThemedText type='caption'>{formatTime(conversation.modifyTime)}</ThemedText>
+        <ThemedText type='caption'>{formatTime(conversation.modifyTime, t)}</ThemedText>
       </View>
 
       <View style={styles.row}>

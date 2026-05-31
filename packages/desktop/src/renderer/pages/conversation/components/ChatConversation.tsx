@@ -34,6 +34,7 @@ import AionrsModelSelector from '../platforms/aionrs/AionrsModelSelector';
 import { useAionrsModelSelection } from '../platforms/aionrs/useAionrsModelSelection';
 import { usePreviewContext } from '../Preview';
 import StarOfficeMonitorCard from '../platforms/openclaw/StarOfficeMonitorCard.tsx';
+import ThreadHeartbeatButton from './ThreadHeartbeatButton';
 // import SkillRuleGenerator from './components/SkillRuleGenerator'; // Temporarily hidden
 
 /** Check whether a specific skill is mounted on the conversation. */
@@ -175,6 +176,7 @@ const AionrsConversationPanel: React.FC<{ conversation: AionrsConversation; slid
           cron_job_id={conversation.extra?.cron_job_id as string | undefined}
           hasCronSkill={hasLoadedSkill(conversation, 'cron')}
         />
+        <ThreadHeartbeatButton conversation={conversation} />
         {!isMobile && <AionrsModelSelector selection={modelSelection} />}
       </div>
     ),
@@ -389,6 +391,11 @@ const ChatConversation: React.FC<{
               openPreview(url, 'url', metadata);
             }}
           />
+        </div>
+      )}
+      {conversation && (
+        <div className='shrink-0'>
+          <ThreadHeartbeatButton conversation={conversation} />
         </div>
       )}
       {conversation && (

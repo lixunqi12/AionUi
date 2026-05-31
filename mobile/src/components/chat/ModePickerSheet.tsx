@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { ThemedText } from '../ui/ThemedText';
 import { useThemeColor } from '../../hooks/useThemeColor';
 import type { AgentModeOption } from '../../constants/agentModes';
+import i18n from '../../i18n';
 
 type ModePickerSheetProps = {
   visible: boolean;
@@ -28,7 +29,7 @@ export function showModeActionSheet(
   onSelect: (value: string) => void,
 ) {
   if (Platform.OS === 'ios') {
-    const options = [...modes.map((m) => m.label), t('common.cancel')];
+    const options = [...modes.map((m) => m.label), i18n.t('common.cancel')];
     const cancelButtonIndex = options.length - 1;
     ActionSheetIOS.showActionSheetWithOptions(
       { options, cancelButtonIndex },

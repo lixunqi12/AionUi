@@ -17,6 +17,8 @@ import { useNavigate } from 'react-router-dom';
 import { useCronJobs } from '../useCronJobs';
 import { getJobStatusFlags } from '../cronUtils';
 
+const HEARTBEAT_DESCRIPTION_PREFIX = '[aionui-heartbeat]';
+
 interface CronJobManagerProps {
   conversation_id: string;
   /** When provided (e.g. from conversation.extra.cron_job_id), fetch the job directly */
@@ -83,11 +85,12 @@ const CronJobManager: React.FC<CronJobManagerProps> = ({ conversation_id, cron_j
   }, [cron_job_id]);
 
   // For regular conversations, use the existing hook
-  const { jobs, loading: listLoading, hasJobs } = useCronJobs(cron_job_id ? undefined : conversation_id);
+  const { jobs, loading: listLoading } = useCronJobs(cron_job_id ? undefined : conversation_id);
+  const visibleJobs = jobs.filter((item) => !item.description?.startsWith(HEARTBEAT_DESCRIPTION_PREFIX));
 
-  const job = cron_job_id ? directJob : (jobs[0] ?? null);
+  const job = cron_job_id ? directJob : (visibleJobs[0] ?? null);
   const loading = cron_job_id ? directLoading : listLoading;
-  const found = cron_job_id ? !!directJob : hasJobs;
+  const found = cron_job_id ? !!directJob : visibleJobs.length > 0;
 
   // Handle unconfigured state (no jobs)
   // If cron skill is not loaded for this conversation, hide entirely

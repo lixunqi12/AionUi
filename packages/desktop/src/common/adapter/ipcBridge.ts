@@ -1151,20 +1151,46 @@ export const webui = {
 // Cron — routed to /api/cron/*
 // ---------------------------------------------------------------------------
 
+function toCronSchedulePayload(schedule: ICronSchedule | undefined): unknown {
+  if (!schedule) return undefined;
+  const raw = schedule as ICronSchedule & {
+    at_ms?: number;
+    every_ms?: number;
+  };
+  if (raw.kind === 'at') {
+    return {
+      kind: 'at',
+      at_ms: raw.at_ms ?? raw.atMs,
+      description: raw.description,
+    };
+  }
+  if (raw.kind === 'every') {
+    return {
+      kind: 'every',
+      every_ms: raw.every_ms ?? raw.everyMs,
+      description: raw.description,
+    };
+  }
+  return raw;
+}
+
 export const cron = {
   listJobs: httpGet<ICronJob[], void>('/api/cron/jobs'),
   listJobsByConversation: httpGet<ICronJob[], { conversation_id: string }>(
     (p) => `/api/cron/jobs?conversation_id=${encodeURIComponent(p.conversation_id)}`
   ),
   getJob: httpGet<ICronJob | null, { job_id: string }>((p) => `/api/cron/jobs/${p.job_id}`),
-  addJob: httpPost<ICronJob, ICreateCronJobParams>('/api/cron/jobs'),
+  addJob: httpPost<ICronJob, ICreateCronJobParams>('/api/cron/jobs', (p) => ({
+    ...p,
+    schedule: toCronSchedulePayload(p.schedule),
+  })),
   updateJob: httpPut<ICronJob, { job_id: string; updates: Partial<ICronJob> }>(
     (p) => `/api/cron/jobs/${p.job_id}`,
     (p) => ({
       name: p.updates.name,
       description: p.updates.description,
       enabled: p.updates.enabled,
-      schedule: p.updates.schedule,
+      schedule: toCronSchedulePayload(p.updates.schedule),
       message: p.updates.target?.payload.text,
       execution_mode: p.updates.target?.execution_mode,
       agent_config: p.updates.metadata?.agent_config,

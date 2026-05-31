@@ -17,6 +17,10 @@ function simulateMessage(name: string, data: unknown) {
   handler?.(name, data);
 }
 
+function latestRequestPayload(): { id: string; data?: unknown } {
+  return mockSend.mock.calls[mockSend.mock.calls.length - 1][1];
+}
+
 describe('BridgeService', () => {
   beforeEach(() => {
     mockSend.mockClear();
@@ -25,12 +29,15 @@ describe('BridgeService', () => {
   describe('emit', () => {
     it('sends a fire-and-forget message via WebSocket', () => {
       bridge.emit('chat:send', { text: 'hello' });
-      expect(mockSend).toHaveBeenCalledWith('chat:send', { text: 'hello' });
+      expect(mockSend).toHaveBeenCalledWith(
+        'subscribe-chat:send',
+        expect.objectContaining({ data: { text: 'hello' } })
+      );
     });
 
     it('sends without data', () => {
       bridge.emit('ping');
-      expect(mockSend).toHaveBeenCalledWith('ping', undefined);
+      expect(mockSend).toHaveBeenCalledWith('subscribe-ping', expect.objectContaining({ data: undefined }));
     });
   });
 
@@ -99,20 +106,25 @@ describe('BridgeService', () => {
   describe('request', () => {
     it('sends request and resolves when server responds', async () => {
       const promise = bridge.request('get:sessions');
+      const payload = latestRequestPayload();
 
-      expect(mockSend).toHaveBeenCalledWith('get:sessions', undefined);
+      expect(mockSend).toHaveBeenCalledWith('subscribe-get:sessions', expect.objectContaining({ data: undefined }));
 
       // Simulate server response
-      simulateMessage('get:sessions', [{ id: 1 }]);
+      simulateMessage(`subscribe.callback-get:sessions${payload.id}`, [{ id: 1 }]);
 
       await expect(promise).resolves.toEqual([{ id: 1 }]);
     });
 
     it('sends request with data', async () => {
       const promise = bridge.request('create:session', { name: 'test' });
-      expect(mockSend).toHaveBeenCalledWith('create:session', { name: 'test' });
+      const payload = latestRequestPayload();
+      expect(mockSend).toHaveBeenCalledWith(
+        'subscribe-create:session',
+        expect.objectContaining({ data: { name: 'test' } })
+      );
 
-      simulateMessage('create:session', { id: 2 });
+      simulateMessage(`subscribe.callback-create:session${payload.id}`, { id: 2 });
       await expect(promise).resolves.toEqual({ id: 2 });
     });
 
@@ -130,7 +142,8 @@ describe('BridgeService', () => {
 
     it('cleans up listener after response', async () => {
       const promise = bridge.request('cleanup-test');
-      simulateMessage('cleanup-test', 'result');
+      const payload = latestRequestPayload();
+      simulateMessage(`subscribe.callback-cleanup-test${payload.id}`, 'result');
       await promise;
 
       // Subsequent messages for same name should not cause issues

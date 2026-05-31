@@ -34,8 +34,10 @@ export function useStatusIcons() {
   };
 }
 
+type StatusIconKey = keyof ReturnType<typeof useStatusIcons>;
+
 // Map ACP status values to mobile icon keys
-export function mapAcpStatus(status: string): string {
+export function mapAcpStatus(status: string): StatusIconKey {
   switch (status) {
     case 'in_progress':
       return 'executing';
@@ -199,7 +201,10 @@ export function WebSearchBlock({ content }: { content: any }) {
 
 // --- Diff Display ---
 
-function parseDiffStats(unifiedDiff: string): { fileName: string; insertions: number; deletions: number } {
+function parseDiffStats(
+  unifiedDiff: string,
+  defaultFileName: string
+): { fileName: string; insertions: number; deletions: number } {
   let fileName = '';
   let insertions = 0;
   let deletions = 0;
@@ -232,7 +237,7 @@ function parseDiffStats(unifiedDiff: string): { fileName: string; insertions: nu
     fileName = parts[parts.length - 1];
   }
 
-  return { fileName: fileName || t('files.defaultFile'), insertions, deletions };
+  return { fileName: fileName || defaultFileName, insertions, deletions };
 }
 
 export function DiffBlock({ content }: { content: any }) {
@@ -247,7 +252,7 @@ export function DiffBlock({ content }: { content: any }) {
   const text = useThemeColor({}, 'text');
 
   const unifiedDiff = content.data?.unified_diff || '';
-  const stats = parseDiffStats(unifiedDiff);
+  const stats = parseDiffStats(unifiedDiff, t('files.defaultFile'));
 
   return (
     <View style={[styles.container, { backgroundColor: surface }]}>
@@ -301,6 +306,7 @@ export function ToolItem({
   border: string;
   iconColor: string;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const statusIcons = useStatusIcons();
   const status = tool.status || 'Executing';

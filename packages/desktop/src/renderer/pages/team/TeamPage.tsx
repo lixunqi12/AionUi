@@ -23,6 +23,7 @@ import { TeamTabsProvider, useTeamTabs } from './hooks/TeamTabsContext';
 import { TeamPermissionProvider } from './hooks/TeamPermissionContext';
 import { useTeamSession } from './hooks/useTeamSession';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
+import ThreadHeartbeatButton from '@/renderer/pages/conversation/components/ThreadHeartbeatButton';
 
 type Props = {
   team: TTeam;
@@ -106,6 +107,7 @@ const AgentChatSlot: React.FC<{
           <TeamRuntimeInspector agent={agent} conversation={conversation} statusInfo={statusInfo} isLeader={isLeader} />
         )}
         <div className='flex items-center gap-8px shrink-0'>
+          {conversation && <ThreadHeartbeatButton conversation={conversation as TChatConversation} />}
           {!isMobile && agent.conversation_id && !isAionrs && isAcpLike && (
             <div className='min-w-0 max-w-140px [&_button]:max-w-full [&_button_span]:truncate'>
               <AcpModelSelector
