@@ -5,6 +5,7 @@
  */
 
 import { configService } from '@/common/config/configService';
+import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
 import type { AcpModelInfo } from '@/common/types/platform/acpTypes';
 import { getAgents } from '@/renderer/hooks/agent/useAgents';
 
@@ -53,6 +54,10 @@ async function resolveAcpDefaultModel(agent_type: string): Promise<string> {
     }
   } catch {
     // Fall through to cached models
+  }
+
+  if (agent_type === 'codex' && DEFAULT_CODEX_MODELS.length > 0) {
+    return DEFAULT_CODEX_MODELS[0].id;
   }
 
   return 'default';
