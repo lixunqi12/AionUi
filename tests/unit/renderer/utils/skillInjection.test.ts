@@ -17,8 +17,11 @@ describe('selectRelevantSkillsForMessage', () => {
   });
 
   it('matches Chinese local skill hints without relying on non-ascii source text', () => {
-    expect(selectRelevantSkillsForMessage('\u8fd9\u4e2a\u672c\u5730\u6280\u80fd\u5e2e\u6211\u90e8\u7f72\u4e00\u4e0b', candidates)).toContain(
-      'shared-skill-deploy'
-    );
+    expect(
+      selectRelevantSkillsForMessage(
+        '\u8fd9\u4e2a\u672c\u5730\u6280\u80fd\u5e2e\u6211\u90e8\u7f72\u4e00\u4e0b',
+        candidates
+      )
+    ).toContain('shared-skill-deploy');
   });
 });

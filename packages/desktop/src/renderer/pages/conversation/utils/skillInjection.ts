@@ -12,7 +12,10 @@ const EXTENSION_HINTS: Array<{ pattern: RegExp; names: string[] }> = [
   { pattern: /\b(pptx?|slides?|presentation|\.pptx?)\b/i, names: ['presentations', 'officecli'] },
   { pattern: /\b(verilog|systemverilog|rtl|cdc|reset|fsm|\.sv|\.v)\b/i, names: ['rtl-debug-playbook', 'rtl-review'] },
   { pattern: /\b(fsdb|waveform|signal|pynpi)\b/i, names: ['fsdb-pynpi'] },
-  { pattern: /\b(github|pull request|\bpr\b|issue|ci|actions)\b/i, names: ['github', 'gh-fix-ci', 'gh-address-comments'] },
+  {
+    pattern: /\b(github|pull request|\bpr\b|issue|ci|actions)\b/i,
+    names: ['github', 'gh-fix-ci', 'gh-address-comments'],
+  },
   {
     pattern: /\b(aionui|codex|claude code|skill|mcp|local agent)\b|\u672c\u5730|\u6280\u80fd/i,
     names: ['local-ai-tool-bootstrap', 'shared-skill-deploy'],
@@ -21,7 +24,10 @@ const EXTENSION_HINTS: Array<{ pattern: RegExp; names: string[] }> = [
 ];
 
 function normalizeToken(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ').trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim();
 }
 
 function nameTokens(name: string): string[] {

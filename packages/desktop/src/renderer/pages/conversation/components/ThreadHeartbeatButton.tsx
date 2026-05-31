@@ -153,20 +153,12 @@ const ThreadHeartbeatButton: React.FC<{ conversation: TChatConversation }> = ({ 
   );
 
   return (
-    <Popover
-      trigger='click'
-      position='bottom'
-      content={content}
-      popupVisible={visible}
-      onVisibleChange={setVisible}
-    >
+    <Popover trigger='click' position='bottom' content={content} popupVisible={visible} onVisibleChange={setVisible}>
       <Tooltip content={statusText}>
         <Button type='text' size='small' className='!h-auto !w-auto !min-w-0 !px-0 !py-0'>
           <span className='inline-flex items-center gap-2px rounded-full px-8px py-2px bg-2'>
             <AlarmClock theme='outline' size={16} fill={activeHeartbeat ? iconColors.primary : iconColors.disabled} />
-            <span
-              className={`ml-4px h-8px w-8px rounded-full ${activeHeartbeat ? 'bg-[#00b42a]' : 'bg-[#86909c]'}`}
-            />
+            <span className={`ml-4px h-8px w-8px rounded-full ${activeHeartbeat ? 'bg-[#00b42a]' : 'bg-[#86909c]'}`} />
           </span>
         </Button>
       </Tooltip>

@@ -142,9 +142,7 @@ const AcpSendBox: React.FC<{
   const isMobile = Boolean(layout?.isMobile);
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
-  const { data: globalSkills = [] } = useSWR('skills-index:sendbox', () =>
-    ipcBridge.fs.listAvailableSkills.invoke()
-  );
+  const { data: globalSkills = [] } = useSWR('skills-index:sendbox', () => ipcBridge.fs.listAvailableSkills.invoke());
   const skillCandidates = useMemo(() => {
     const loaded = loadedSkills.map((name) => ({ name }));
     return [...loaded, ...globalSkills.map((skill) => ({ name: skill.name, description: skill.description }))];
