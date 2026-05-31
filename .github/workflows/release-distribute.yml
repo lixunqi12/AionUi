@@ -55,13 +55,29 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Tag: $TAG / Version: $VERSION"
 
+      - name: Check distribution configuration
+        id: distribution_config
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        run: |
+          if [ -z "$AWS_REGION" ] || [ -z "$AWS_ROLE_ARN" ] || [ -z "$AWS_S3_BUCKET" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::notice::AWS distribution secrets are not configured; skipping external asset mirroring."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials (OIDC)
+        if: steps.distribution_config.outputs.configured == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Guard against same-version overwrite
+        if: steps.distribution_config.outputs.configured == 'true'
         env:
           S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -76,6 +92,7 @@ jobs:
           fi
 
       - name: Download release assets from GitHub
+        if: steps.distribution_config.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -92,6 +109,7 @@ jobs:
           ls -la dist
 
       - name: Upload assets
+        if: steps.distribution_config.outputs.configured == 'true'
         env:
           S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -100,6 +118,7 @@ jobs:
           echo "Uploaded release ${VERSION}"
 
       - name: Summary
+        if: steps.distribution_config.outputs.configured == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -109,4 +128,18 @@ jobs:
             echo ""
             echo "- Tag: \`${TAG}\`"
             echo "- Version: \`${VERSION}\`"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: Skipped summary
+        if: steps.distribution_config.outputs.configured != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo "### Release asset mirroring skipped"
+            echo ""
+            echo "- Tag: \`${TAG}\`"
+            echo "- Version: \`${VERSION}\`"
+            echo "- Reason: AWS distribution secrets are not configured for this fork."
           } >> $GITHUB_STEP_SUMMARY
