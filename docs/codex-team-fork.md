@@ -1,25 +1,25 @@
 # Codex Team Fork Notes
 
-This fork is based on AionUi 2.1.7 and carries the local Codex Team integration
+This fork is based on AionUi 2.1.8 and carries the local Codex Team integration
 used by the portable Windows build.
 
 ## What Is Included
 
-- AionUi 2.1.7 upstream baseline.
+- AionUi 2.1.8 upstream baseline.
 - Codex Team runtime inspector and Team workflow fixes.
 - Mobile Web UI conversation fork fixes.
-- Conversation-scoped MCP and structured agent error handling from upstream
-  2.1.7 work.
+- Conversation-scoped MCP, structured agent error handling, and backend startup
+  diagnostics from upstream 2.1.7/2.1.8 work.
 - Codex `full-access` behavior through the bundled local AionCore build.
 
 ## Bundled AionCore
 
 The Windows release asset includes a local AionCore build:
 
-- Source branch: `lixun/full-access-v0.1.16`
-- Source commit: `8f1db6d529bd9f5de3d7e8a24adcf3c402d83e2f`
+- Source branch: `lixun/full-access-v0.1.17`
+- Source commit: `00b57c3596edc9bdf381f34beb2fc15d1a6b280f`
 - Binary SHA256:
-  `0FE50FCEAC9C0C520F42FCE051568A55CD4EB645846C49B75540E64BB9ADCBD3`
+  `4F00FAD0542299846A2BA7A71F278ACFFC482C4B354A55FB025E8A01550FC55B`
 
 When Codex `full-access` is selected, the runtime should write:
 
@@ -33,7 +33,7 @@ approval_policy = "never"
 For another Windows x64 machine, use the GitHub release asset named like:
 
 ```text
-AionUi-2.1.7-codex-team-win32-x64.zip
+AionUi-2.1.8-codex-team-win32-x64.zip
 ```
 
 Unzip it and run:
