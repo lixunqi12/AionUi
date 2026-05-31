@@ -243,7 +243,17 @@ function buildFromSource(platform, arch, tag, forkConfig) {
   });
 
   try {
-    execFileSync('rustup', ['target', 'add', rustTarget], {
+    const activeToolchain = execFileSync('rustup', ['show', 'active-toolchain'], {
+      cwd: sourceDir,
+      encoding: 'utf-8',
+      timeout: 30000,
+    })
+      .trim()
+      .split(/\s+/)[0];
+    const rustupArgs = activeToolchain
+      ? ['target', 'add', rustTarget, '--toolchain', activeToolchain]
+      : ['target', 'add', rustTarget];
+    execFileSync('rustup', rustupArgs, {
       stdio: 'inherit',
       timeout: 120000,
     });
