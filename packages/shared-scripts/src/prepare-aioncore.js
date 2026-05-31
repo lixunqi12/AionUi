@@ -52,6 +52,45 @@ function getBinaryName(platform) {
   return platform === 'win32' ? 'aioncore.exe' : 'aioncore';
 }
 
+function getRustTarget(platform, arch) {
+  const archMap = { x64: 'x86_64', arm64: 'aarch64' };
+  const platformMap = {
+    darwin: 'apple-darwin',
+    linux: 'unknown-linux-gnu',
+    win32: 'pc-windows-msvc',
+  };
+  const normalizedArch = archMap[arch];
+  const normalizedPlatform = platformMap[platform];
+  if (!normalizedArch || !normalizedPlatform) return null;
+  return `${normalizedArch}-${normalizedPlatform}`;
+}
+
+function readForkConfig(projectRoot, platform, arch) {
+  try {
+    const pkgPath = path.join(projectRoot, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const config = pkg.aioncoreFork;
+    if (!config || typeof config !== 'object') return null;
+
+    const targetKeys = [`${platform}-${arch}`, platform];
+    if (Array.isArray(config.platforms) && !config.platforms.some((entry) => targetKeys.includes(entry))) {
+      return null;
+    }
+
+    if (!config.version && !config.ref) return null;
+    return {
+      owner: config.owner || GITHUB_OWNER,
+      repo: config.repo || GITHUB_REPO,
+      version: config.version || config.ref,
+      ref: config.ref || config.version,
+      gitUrl: config.gitUrl || null,
+      buildFromSource: config.buildFromSource === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Source resolvers
 // ---------------------------------------------------------------------------
@@ -109,8 +148,8 @@ function getAssetName(platform, arch, tag) {
   return `aioncore-${tag}-${normalizedArch}-${normalizedPlatform}${ext}`;
 }
 
-function getDownloadUrl(assetName, tag) {
-  return `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/${tag}/${assetName}`;
+function getDownloadUrl(assetName, tag, owner = GITHUB_OWNER, repo = GITHUB_REPO) {
+  return `https://github.com/${owner}/${repo}/releases/download/${tag}/${assetName}`;
 }
 
 function downloadFile(url, outputPath) {
@@ -156,13 +195,13 @@ function findBinaryInDir(dir, binaryName) {
   return null;
 }
 
-function downloadAndExtract(platform, arch, tag) {
+function downloadAndExtract(platform, arch, tag, owner = GITHUB_OWNER, repo = GITHUB_REPO) {
   const assetName = getAssetName(platform, arch, tag);
   if (!assetName) {
     throw new Error(`Unsupported aioncore target: ${platform}-${arch}`);
   }
 
-  const url = getDownloadUrl(assetName, tag);
+  const url = getDownloadUrl(assetName, tag, owner, repo);
   const tempDir = path.join(os.tmpdir(), 'aioncore-prepare', tag, `${platform}-${arch}`);
   const archivePath = path.join(tempDir, assetName);
   const extractDir = path.join(tempDir, 'extracted');
@@ -180,6 +219,64 @@ function downloadAndExtract(platform, arch, tag) {
   }
 
   return { binaryPath, tempDir, url };
+}
+
+function buildFromSource(platform, arch, tag, forkConfig) {
+  const rustTarget = getRustTarget(platform, arch);
+  if (!rustTarget) {
+    throw new Error(`Unsupported source-build target: ${platform}-${arch}`);
+  }
+
+  const binaryName = getBinaryName(platform);
+  const repoUrl = forkConfig.gitUrl || `https://github.com/${forkConfig.owner}/${forkConfig.repo}.git`;
+  const sourceRef = forkConfig.ref || tag;
+  const tempDir = path.join(os.tmpdir(), 'aioncore-source-build', tag, `${platform}-${arch}`);
+  const sourceDir = path.join(tempDir, 'source');
+
+  removeDirectorySafe(tempDir);
+  ensureDirectory(tempDir);
+
+  console.log(`  Building aioncore from source: ${repoUrl} @ ${sourceRef} (${rustTarget})`);
+  execFileSync('git', ['clone', '--depth', '1', '--branch', sourceRef, repoUrl, sourceDir], {
+    stdio: 'inherit',
+    timeout: 120000,
+  });
+
+  try {
+    execFileSync('rustup', ['target', 'add', rustTarget], {
+      stdio: 'inherit',
+      timeout: 120000,
+    });
+  } catch (error) {
+    console.warn(`  rustup target add ${rustTarget} failed or was unavailable: ${error.message}`);
+  }
+
+  execFileSync('cargo', ['build', '--release', '--target', rustTarget, '-p', 'aionui-app', '--bin', 'aioncore'], {
+    cwd: sourceDir,
+    stdio: 'inherit',
+    timeout: 1800000,
+    env: {
+      ...process.env,
+      AIONUI_EMBED_BUN: process.env.AIONUI_EMBED_BUN || '1',
+      CARGO_HTTP_TIMEOUT: process.env.CARGO_HTTP_TIMEOUT || '600',
+      CARGO_NET_RETRY: process.env.CARGO_NET_RETRY || '10',
+    },
+  });
+
+  const binaryPath = path.join(sourceDir, 'target', rustTarget, 'release', binaryName);
+  if (!fs.existsSync(binaryPath)) {
+    throw new Error(`Source build completed but binary was not found: ${binaryPath}`);
+  }
+
+  return {
+    binaryPath,
+    tempDir,
+    sourceDetail: {
+      repo: repoUrl,
+      ref: sourceRef,
+      target: rustTarget,
+    },
+  };
 }
 
 function localBinaryPath() {
@@ -209,10 +306,14 @@ function localBinaryPath() {
 function prepareAioncore(options) {
   const { projectRoot, platform, arch, version = 'latest' } = options;
   const runtimeKey = `${platform}-${arch}`;
+  const forkConfig = readForkConfig(projectRoot, platform, arch);
 
   // Resolve the actual version tag — asset filenames include the tag
   let tag;
-  if (version === 'latest') {
+  if (forkConfig) {
+    tag = forkConfig.version.startsWith('v') ? forkConfig.version : `v${forkConfig.version}`;
+    console.log(`Using fork aioncore config for ${runtimeKey}: ${forkConfig.owner}/${forkConfig.repo}@${tag}`);
+  } else if (version === 'latest') {
     const resolved = resolveLatestTag();
     if (!resolved) {
       throw new Error('Failed to resolve latest aioncore release tag from GitHub API');
@@ -253,7 +354,9 @@ function prepareAioncore(options) {
   // 2. Download from GitHub releases
   if (!sourcePath) {
     try {
-      const result = downloadAndExtract(platform, arch, tag);
+      const result = forkConfig
+        ? downloadAndExtract(platform, arch, tag, forkConfig.owner, forkConfig.repo)
+        : downloadAndExtract(platform, arch, tag);
       sourcePath = result.binaryPath;
       tempDir = result.tempDir;
       sourceType = 'download';
@@ -262,6 +365,15 @@ function prepareAioncore(options) {
     } catch (error) {
       console.warn(`  Download failed: ${error.message}`);
     }
+  }
+
+  // Build from source for fork targets whose release assets are not available yet.
+  if (!sourcePath && forkConfig?.buildFromSource) {
+    const result = buildFromSource(platform, arch, tag, forkConfig);
+    sourcePath = result.binaryPath;
+    tempDir = result.tempDir;
+    sourceType = 'source-build';
+    sourceDetail = result.sourceDetail;
   }
 
   // Write result

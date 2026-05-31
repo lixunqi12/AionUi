@@ -252,6 +252,17 @@
   "engines": {
     "node": ">=22 <25"
   },
+  "aioncoreFork": {
+    "owner": "lixunqi12",
+    "repo": "AionCore",
+    "version": "v0.1.17-full-access.2",
+    "ref": "v0.1.17-full-access.2",
+    "buildFromSource": true,
+    "platforms": [
+      "darwin-arm64",
+      "darwin-x64"
+    ]
+  },
   "aioncoreVersion": "v0.1.17",
   "electronRebuild": {
     "electronVersion": "^37.3.1"
